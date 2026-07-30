@@ -78,12 +78,38 @@
   }
   document.title = origTitle;
   var text = out.join('\\n\\n');
-  try {
-    await navigator.clipboard.writeText(text);
-    alert('Copiado! ' + links.length + ' vídeo(s) prontos. Volta ao Knowledge Vault, abre a pasta certa e cola em "Vários".');
-  } catch (e) {
-    window.prompt('Copia este texto (Ctrl+C ou Cmd+C) e cola no Knowledge Vault em "Vários":', text);
-  }
+  // caixa de texto real (nao prompt()) — em varios browsers moveis o prompt() so mostra
+  // uma linha e perde as quebras de linha entre videos; a textarea preserva-as sempre,
+  // e o botao "Copiar" corre num clique novo e direto (execCommand funciona sempre assim).
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:16px;font-family:sans-serif';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#fff;border-radius:12px;padding:16px;max-width:560px;width:100%;max-height:82vh;display:flex;flex-direction:column;gap:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)';
+  var h = document.createElement('div');
+  h.textContent = links.length + ' vídeo(s) encontrado(s) — copia tudo e cola no Knowledge Vault em "Vários"';
+  h.style.cssText = 'font-weight:700;color:#111;font-size:14px;line-height:1.4';
+  var ta = document.createElement('textarea');
+  ta.value = text; ta.readOnly = true;
+  ta.style.cssText = 'width:100%;flex:1;min-height:220px;font-family:monospace;font-size:12px;color:#111;background:#f6f2ea;border:1px solid #d3c9b3;border-radius:8px;padding:10px;box-sizing:border-box';
+  var row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px';
+  var copyBtn = document.createElement('button');
+  copyBtn.textContent = '⧉ Copiar tudo';
+  copyBtn.style.cssText = 'flex:1;padding:13px;background:#bd5227;color:#fff;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer';
+  copyBtn.onclick = function(){
+    ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+    var okCopy = false;
+    try { okCopy = document.execCommand('copy'); } catch (e) {}
+    copyBtn.textContent = okCopy ? '✓ Copiado!' : 'Seleciona e copia (Ctrl/Cmd+C)';
+  };
+  var closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Fechar';
+  closeBtn.style.cssText = 'padding:13px 18px;background:#eee;color:#111;border:none;border-radius:8px;font-size:14px;cursor:pointer';
+  closeBtn.onclick = function(){ ov.remove(); };
+  row.appendChild(copyBtn); row.appendChild(closeBtn);
+  box.appendChild(h); box.appendChild(ta); box.appendChild(row);
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+  ta.focus(); ta.select();
 })();`;
 
   function detectType(url) {
