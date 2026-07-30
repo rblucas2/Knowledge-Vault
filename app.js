@@ -22,6 +22,70 @@
   };
   const typeMeta = (t) => TYPES[t] || TYPES.outro;
 
+  /** Vai buscar título/legenda automaticamente via oEmbed público (TikTok/YouTube) — sem chave,
+   *  sem login, só o endpoint oficial pensado para embeds. Devolve null em silêncio se falhar
+   *  (link privado, CORS, endpoint em baixo…) para nunca bloquear o preenchimento manual. */
+  async function fetchOEmbed(url) {
+    if (!url) return null;
+    let endpoint = null;
+    if (/tiktok\.com/i.test(url)) endpoint = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
+    else if (/youtube\.com|youtu\.be/i.test(url)) endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    if (!endpoint) return null;
+    try {
+      const r = await fetch(endpoint);
+      if (!r.ok) return null;
+      const j = await r.json();
+      return { title: (j.title || "").trim(), author: (j.author_name || "").trim() };
+    } catch (e) { return null; }
+  }
+
+  /* ---------- Bookmarklet: recolher uma pasta de Favoritos do TikTok ---------- */
+  // Corre na aba do tiktok.com (sessão do próprio utilizador, disparado manualmente por ele —
+  // não é scraping automatizado nem login simulado). Recolhe os links de vídeo visíveis na
+  // página, faz scroll para carregar mais (a pasta usa scroll infinito), vai buscar a legenda
+  // de cada um via oEmbed público, e copia tudo já formatado para colar em "Vários" aqui.
+  const TIKTOK_BOOKMARKLET_SRC = `(async function(){
+  var seen = new Set();
+  var rx = /https:\\/\\/www\\.tiktok\\.com\\/@[\\w.-]+\\/video\\/\\d+/;
+  function collect(){
+    document.querySelectorAll('a[href*="/video/"]').forEach(function(a){
+      var m = a.href.match(rx);
+      if (m) seen.add(m[0]);
+    });
+  }
+  collect();
+  var origTitle = document.title;
+  document.title = '⏳ A recolher vídeos…';
+  var last = 0, stable = 0;
+  for (var i = 0; i < 40 && stable < 3; i++) {
+    window.scrollTo(0, document.body.scrollHeight);
+    await new Promise(function(r){ setTimeout(r, 700); });
+    collect();
+    if (seen.size === last) stable++; else stable = 0;
+    last = seen.size;
+  }
+  if (!seen.size) { document.title = origTitle; alert('Não encontrei vídeos nesta página. Abre uma pasta de Favoritos com vídeos (tiktok.com/@teu_user/favorites) e tenta de novo.'); return; }
+  var links = Array.from(seen);
+  var out = [];
+  for (var j = 0; j < links.length; j++) {
+    document.title = '⏳ ' + (j+1) + '/' + links.length;
+    try {
+      var r = await fetch('https://www.tiktok.com/oembed?url=' + encodeURIComponent(links[j]));
+      var d = await r.json();
+      out.push(links[j] + '\\n' + (d.title || ''));
+    } catch (e) { out.push(links[j]); }
+    await new Promise(function(r){ setTimeout(r, 200); });
+  }
+  document.title = origTitle;
+  var text = out.join('\\n\\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('Copiado! ' + links.length + ' vídeo(s) prontos. Volta ao Knowledge Vault, abre a pasta certa e cola em "Vários".');
+  } catch (e) {
+    window.prompt('Copia este texto (Ctrl+C ou Cmd+C) e cola no Knowledge Vault em "Vários":', text);
+  }
+})();`;
+
   function detectType(url) {
     if (!url) return "outro";
     const u = url.toLowerCase();
@@ -566,9 +630,22 @@
       type = b.dataset.type;
       seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
     });
-    $("#f-url").addEventListener("blur", (ev) => {
-      const d = detectType(ev.target.value);
+    $("#f-url").addEventListener("blur", async (ev) => {
+      const url = ev.target.value.trim();
+      const d = detectType(url);
       if (d !== "outro") { type = d; seg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x.dataset.type === d)); }
+      if ((d === "tiktok" || d === "youtube") && url) {
+        const titleInp = $("#f-title"), rawInp = $("#f-raw");
+        if (!titleInp || (titleInp.value.trim() && rawInp.value.trim())) return; // já preenchido à mão
+        const note = $("#add-status");
+        if (note) note.innerHTML = `<div class="tiny muted" style="display:flex;align-items:center;gap:7px"><span class="spin" style="width:13px;height:13px"></span> A ir buscar título/legenda automaticamente…</div>`;
+        const meta = await fetchOEmbed(url);
+        if (note) note.innerHTML = "";
+        if (!meta) return;
+        if (!titleInp.value.trim() && meta.title) titleInp.value = meta.title;
+        // no TikTok o "title" do oEmbed é a legenda do vídeo — serve de transcrição de base
+        if (d === "tiktok" && !rawInp.value.trim() && meta.title) rawInp.value = meta.title;
+      }
     });
 
     $("#genBtn").addEventListener("click", async () => {
@@ -672,6 +749,8 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
         $("#bulk-status").innerHTML = `<div class="gen-box"><span class="spin"></span><div class="t">A gerar ${i + 1} de ${blocks.length}…</div><div class="s">${done} feito(s)${failed ? `, ${failed} falhou(aram)` : ""}</div></div>`;
         const b = blocks[i];
         const t = detectType(b.url) !== "outro" ? detectType(b.url) : type;
+        // sem legenda colada? tenta ir buscá-la automaticamente (TikTok/YouTube) antes de resumir
+        if (!b.raw.trim() && b.url) { const meta = await fetchOEmbed(b.url); if (meta && meta.title) b.raw = meta.title; }
         try {
           const summary = await AI.summarize({ title: "", type: t, url: b.url, raw: b.raw });
           addEntry({
@@ -812,6 +891,20 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
         <div id="s-key-status"></div>
       </div>
 
+      <div class="section-title">Importar do TikTok</div>
+      <div class="card stack">
+        <div class="banner info"><span class="ico">🎵</span><div>Ao adicionar um link do TikTok ou YouTube, a legenda/título já vêm automaticamente (via oEmbed público). Para recolheres <b>uma pasta inteira</b> de Favoritos de uma vez, usa este atalho de um clique.</div></div>
+        <ol class="tiny muted" style="padding-left:18px;line-height:1.7;margin:0">
+          <li>Arrasta o botão abaixo para os favoritos do teu browser (ou copia o código e cria um favorito à mão).</li>
+          <li>No telemóvel/PC, abre <code>tiktok.com/@teu_user/favorites</code> com sessão iniciada.</li>
+          <li>Clica nesse favorito — recolhe os vídeos visíveis e a legenda de cada um, e copia tudo formatado.</li>
+          <li>Volta aqui, abre a pasta certa e cola em "📋 Vários".</li>
+        </ol>
+        <a id="tkBookmarklet" class="btn btn-primary btn-block" href="#" onclick="return false" draggable="true">📲 Recolher pasta do TikTok</a>
+        <button class="btn btn-ghost btn-block" id="tkCopyCode">⧉ Copiar código do atalho</button>
+        <div class="kv-fieldnote">Corre na tua própria sessão do TikTok, disparado por ti — não guarda nem envia a tua password a lado nenhum. Como o TikTok não tem uma API pública para pastas privadas, isto lê o que já está visível na página; se a estrutura do TikTok mudar, pode precisar de ajuste.</div>
+      </div>
+
       <div class="section-title">Sincronização telemóvel ↔ PC</div>
       <div class="card stack">
         <div class="banner info"><span class="ico">☁️</span><div>Opcional e grátis. Cria um projeto em <b>supabase.com</b> (sem cartão), corre o SQL abaixo, e usa o <b>mesmo código</b> nos teus dispositivos.</div></div>
@@ -852,6 +945,16 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
         <b>Knowledge Vault</b> — a tua biblioteca de conhecimento. PWA offline, dados no dispositivo, resumos com IA (Google Gemini grátis, ou Claude). Instala no telemóvel: menu do browser → “Adicionar ao ecrã principal”.
       </div>
     `;
+
+    // — Bookmarklet TikTok —
+    const bmHref = "javascript:" + encodeURIComponent("void " + TIKTOK_BOOKMARKLET_SRC);
+    const bmLink = $("#tkBookmarklet");
+    if (bmLink) {
+      bmLink.href = bmHref;
+      bmLink.addEventListener("click", (e) => { e.preventDefault(); UI.toast("Arrasta este botão para os favoritos do browser — clicar aqui não funciona (é preciso ser um favorito na barra)."); });
+    }
+    const bmCopy = $("#tkCopyCode");
+    if (bmCopy) bmCopy.addEventListener("click", () => { copy(bmHref); UI.toast("Código copiado — cria um novo favorito e cola-o no URL"); });
 
     // — IA —
     $("#s-provider").addEventListener("change", () => {
