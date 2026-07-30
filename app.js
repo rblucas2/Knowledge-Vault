@@ -62,7 +62,7 @@
   window.UI = UI;
 
   /* ---------- dados ---------- */
-  function vault() { return Store.ensure("vault", { entries: [], collections: [] }); }
+  function vault() { return Store.ensure("vault", { entries: [], collections: [], chats: {} }); }
   const entries = () => vault().entries || [];
   const collections = () => vault().collections || [];
   const entryById = (id) => entries().find((e) => e.id === id);
@@ -97,6 +97,11 @@
   function entriesInCollection(id) {
     return entries().filter((e) => e.collectionId === id).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }
+  function chatHistory(id) { return (vault().chats || {})[id] || []; }
+  function pushChatMsg(id, role, text) {
+    Store.update("vault", (v) => { v.chats = v.chats || {}; (v.chats[id] = v.chats[id] || []).push({ role, text, when: Date.now() }); });
+  }
+  function clearChat(id) { Store.update("vault", (v) => { if (v.chats) v.chats[id] = []; }); }
 
   /* ---------- router ---------- */
   let route = { name: "library" };
@@ -125,6 +130,7 @@
     if (n === "detail") { setTab("library"); renderDetail(route.id); return; }
     if (n === "collection") { setTab("folders"); renderCollection(route.id); return; }
     if (n === "plan") { setTab("folders"); renderPlan(route.id); return; }
+    if (n === "chat") { setTab("folders"); renderChat(route.id); return; }
     setTab(n);
     if (n === "library") renderLibrary();
     else if (n === "folders") renderFolders();
@@ -270,7 +276,8 @@
       </div>
       <div class="coll-head"><span class="em">${c.emoji}</span>
         <div><div class="nm">${esc(c.name)}</div><div class="ct">${list.length} ${list.length === 1 ? "conteúdo" : "conteúdos"}</div></div>
-      </div>`;
+      </div>
+      <button class="btn btn-primary btn-block" style="margin-top:14px" data-action="open-chat" data-id="${id}">💬 Conversar sobre esta pasta</button>`;
 
     // Cartão do PLANO
     if (c.plan) {
@@ -342,6 +349,65 @@
     html += `<div class="summary-section"><div class="h">Fontes deste plano</div><div class="list">${entriesInCollection(id).map((e) => `<div class="item" data-action="open" data-id="${e.id}"><div class="grow"><div class="t">${esc(e.title)}</div><div class="s">${typeMeta(e.type).label}</div></div><span class="muted">›</span></div>`).join("") || `<div class="muted tiny">—</div>`}</div></div>`;
 
     view.innerHTML = html;
+  }
+
+  /* ---------- Chat sobre uma pasta ---------- */
+  function chatBubbleHTML(m) {
+    return `<div class="chat-msg ${m.role}"><div class="bubble">${nl2p(m.text)}</div></div>`;
+  }
+  function renderChat(id) {
+    const c = collById(id);
+    if (!c) { go({ name: "folders" }); return; }
+    const list = entriesInCollection(id);
+    const hist = chatHistory(id);
+    setHeader("folders", "");
+    $("#topTitle").textContent = "Conversar";
+    $("#topSub").textContent = c.name;
+
+    const msgsHtml = hist.length ? hist.map(chatBubbleHTML).join("")
+      : `<div class="empty" style="padding:34px 12px"><span class="ico">💬</span><div class="big-t">Pergunta o que quiseres</div>
+          <div>${list.length ? `Baseio-me nos ${list.length} conteúdo(s) desta pasta.` : "A pasta ainda está vazia — adiciona conteúdos para eu ter com que responder."}</div></div>`;
+
+    view.innerHTML = `
+      <button class="btn btn-ghost btn-sm" data-action="to-collection" data-id="${id}" style="margin:6px 0 2px;padding-left:0">‹ ${esc(c.emoji + " " + c.name)}</button>
+      <div class="chat-thread" id="chatThread">${msgsHtml}</div>
+      <div class="chat-inputbar">
+        <textarea id="chatInput" rows="1" placeholder="${AI.configured ? "Escreve a tua pergunta…" : "Configura a IA em Definições primeiro"}" ${AI.configured ? "" : "disabled"}></textarea>
+        <button class="btn btn-primary btn-icon" id="chatSend" aria-label="Enviar" ${AI.configured ? "" : "disabled"}>➤</button>
+      </div>
+      ${hist.length ? `<button class="btn btn-ghost btn-sm" id="chatClear" style="margin-top:8px">🗑 Limpar conversa</button>` : ""}
+    `;
+    const thread = $("#chatThread"); thread.scrollTop = thread.scrollHeight;
+
+    async function send() {
+      const inp = $("#chatInput");
+      const msg = (inp.value || "").trim();
+      if (!msg) return;
+      if (!AI.configured) { UI.toast("Configura a IA em Definições"); return; }
+      const before = chatHistory(id);
+      pushChatMsg(id, "user", msg);
+      renderChat(id);
+      const t2 = $("#chatThread");
+      t2.insertAdjacentHTML("beforeend", `<div class="chat-msg assistant loading"><div class="bubble"><span class="spin"></span></div></div>`);
+      t2.scrollTop = t2.scrollHeight;
+      try {
+        const reply = await AI.chat(c.name, entriesInCollection(id), before, msg);
+        pushChatMsg(id, "assistant", reply);
+      } catch (err) {
+        pushChatMsg(id, "assistant", "⚠️ " + (err.message || "Falhou a resposta."));
+      }
+      renderChat(id);
+    }
+
+    const sendBtn = $("#chatSend");
+    if (sendBtn) sendBtn.addEventListener("click", send);
+    const inp = $("#chatInput");
+    if (inp) {
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+      setTimeout(() => inp.focus(), 50);
+    }
+    const clearBtn = $("#chatClear");
+    if (clearBtn) clearBtn.addEventListener("click", () => { clearChat(id); renderChat(id); });
   }
 
   async function genPlan(id) {
@@ -906,6 +972,7 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
         break;
       case "gen-plan": genPlan(id); break;
       case "view-plan": go({ name: "plan", id }); break;
+      case "open-chat": go({ name: "chat", id }); break;
       case "copy-plan": { const c = collById(id); copy(planToText(c)); UI.toast("Plano copiado"); break; }
       case "del-plan":
         UI.openSheet(`<h2>Apagar plano?</h2><p class="muted">Apaga só o plano consolidado. Os conteúdos da pasta mantêm-se.</p>

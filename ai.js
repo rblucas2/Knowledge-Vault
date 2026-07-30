@@ -299,6 +299,28 @@
     Store.update("sys", (s) => { s.ai = s.ai || {}; s.ai.provider = provider; s.ai.model = model; });
   }
 
+  /* ---------- chat sobre uma pasta ---------- */
+  function chatSystemPrompt() {
+    return [
+      "És um assistente que conversa sobre o conteúdo de uma pasta da biblioteca de conhecimento pessoal do",
+      "utilizador (resumos de podcasts, TikToks, vídeos e artigos que ele guardou sobre um tema).",
+      "Respondes com base no conteúdo fornecido abaixo — podes explicar, comparar, resumir, sugerir passos",
+      "práticos ou construir algo concreto (ex.: um plano) a partir dele. Se a pergunta pedir algo que não está",
+      "no conteúdo fornecido, dizes isso claramente antes de complementares com conhecimento geral teu — nunca",
+      "finges que uma informação vem das fontes guardadas quando não vem. Português de Portugal, direto, sem",
+      "rodeios. Quando a resposta vier claramente de um conteúdo específico, refere-o pelo título.",
+    ].join(" ");
+  }
+  function chatUserContent(collectionName, entries, history, message) {
+    const context = entries.length
+      ? entries.map((e, i) => `=== ${i + 1}. ${e.title} ===\n${entrySummaryText(e)}`).join("\n\n")
+      : "(Esta pasta ainda não tem conteúdos guardados.)";
+    let out = `Pasta: "${collectionName}" — ${entries.length} conteúdo(s) guardado(s):\n\n${context}\n\n---\n`;
+    if (history && history.length) out += history.map((m) => (m.role === "user" ? "Utilizador: " : "Assistente: ") + m.text).join("\n") + "\n";
+    out += "Utilizador: " + message;
+    return out;
+  }
+
   /* ---------- API pública ---------- */
   const AI = {
     PROVIDERS,
@@ -349,6 +371,19 @@
       // para os links "Ver vídeo" continuarem corretos mesmo que a pasta mude depois.
       plan.sources = entries.map((e) => e.id);
       return plan;
+    },
+
+    /** Uma mensagem de chat sobre uma pasta — `history` é [{role:'user'|'assistant', text}], sem incluir `message`. */
+    async chat(collectionName, entries, history, message) {
+      const a = this.settings;
+      const provider = a.provider || "gemini";
+      if (!a.apiKey) throw new Error("Falta a chave da API. Vai a Definições e adiciona a tua chave (grátis com o Gemini).");
+      const model = (a.model && a.model.trim()) || PROVIDERS[provider].defaultModel;
+      const { text, model: workingModel } = await callWithFallback(provider, a.apiKey, model, {
+        system: chatSystemPrompt(), user: chatUserContent(collectionName, entries || [], history || [], message), schema: null, maxTokens: 2000,
+      });
+      rememberWorkingModel(provider, workingModel);
+      return text.trim();
     },
   };
 
