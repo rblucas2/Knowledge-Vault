@@ -769,8 +769,8 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
       if (!blocks.length) { $("#bulk-status").innerHTML = `<div class="banner"><span class="ico">⚠️</span><div>Não encontrei nenhum vídeo no texto colado.</div></div>`; return; }
 
       $("#bulkForm").querySelectorAll("input,textarea,select,button").forEach((el) => el.disabled = true);
-      let done = 0, failed = 0;
-      const failedTitles = [];
+      let done = 0, failed = 0, lastErrMsg = "";
+      const failedBlocks = [];
       for (let i = 0; i < blocks.length; i++) {
         $("#bulk-status").innerHTML = `<div class="gen-box"><span class="spin"></span><div class="t">A gerar ${i + 1} de ${blocks.length}…</div><div class="s">${done} feito(s)${failed ? `, ${failed} falhou(aram)` : ""}</div></div>`;
         const b = blocks[i];
@@ -788,12 +788,30 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
         } catch (err) {
           console.error(err);
           failed++;
-          failedTitles.push(b.url || `bloco ${i + 1}`);
+          lastErrMsg = err.message || "";
+          failedBlocks.push(b);
         }
+        // pequena pausa entre pedidos — lotes grandes (dezenas de vídeos) batem facilmente no
+        // limite por minuto do plano grátis do Gemini se disparados todos seguidos sem intervalo.
+        if (i < blocks.length - 1) await new Promise((r) => setTimeout(r, 350));
       }
       UI.closeSheet();
-      UI.toast(failed ? `${done} resumo(s) criado(s), ${failed} falhou(aram)` : `${done} resumo(s) criado(s) ✨`);
+      if (!failed) {
+        UI.toast(`${done} resumo(s) criado(s) ✨`);
+        if (collectionId) go({ name: "collection", id: collectionId }); else go({ name: "library" });
+        return;
+      }
+      // com falhas: mostra o que correu mal e deixa o texto dos que falharam pronto a copiar,
+      // para tentar de novo só esses (normalmente é limite de quota, que passa em pouco tempo).
       if (collectionId) go({ name: "collection", id: collectionId }); else go({ name: "library" });
+      const retryText = failedBlocks.map((b) => (b.url ? b.url + "\n" + b.raw : b.raw)).join("\n\n");
+      UI.openSheet(`<h2>${done} criado(s), ${failed} falhou(aram)</h2>
+        <p class="muted tiny">${esc(lastErrMsg || "Erro desconhecido")}</p>
+        <p class="muted tiny">Isto costuma ser o limite gratuito de pedidos por minuto — espera um pouco e tenta de novo só com os que falharam:</p>
+        <textarea readonly style="width:100%;min-height:160px;font-family:var(--mono);font-size:12px;margin-top:8px">${esc(retryText)}</textarea>
+        <button class="btn btn-primary btn-block" style="margin-top:12px" id="retryCopy">⧉ Copiar os que falharam</button>
+        <button class="btn btn-ghost btn-block" data-action="close-sheet">Fechar</button>`);
+      $("#retryCopy").addEventListener("click", () => { copy(retryText); UI.toast("Copiado — cola de novo em Vários"); });
     });
   }
 
@@ -853,9 +871,10 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
     UI.openSheet(html);
     let emo = emojis[0];
     $("#emoPick").addEventListener("click", (ev) => { const b = ev.target.closest("button[data-emo]"); if (!b) return; emo = b.dataset.emo; $("#emoPick").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); });
-    $("#c-save").addEventListener("click", () => {
+    $("#c-save").addEventListener("click", (ev) => {
+      const btn = ev.currentTarget; if (btn.disabled) return; btn.disabled = true;
       const name = $("#c-name").value.trim();
-      if (!name) { UI.toast("Dá um nome à pasta"); return; }
+      if (!name) { btn.disabled = false; UI.toast("Dá um nome à pasta"); return; }
       addCollection(name, emo); UI.closeSheet(); UI.toast("Pasta criada"); renderFolders();
     });
   }
