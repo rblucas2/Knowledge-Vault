@@ -1,0 +1,14 @@
+{
+  "name": "Knowledge Vault",
+  "short_name": "Vault",
+  "description": "A tua biblioteca de conhecimento: resumos de podcasts e vídeos do TikTok, num só sítio.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#17130d",
+  "theme_color": "#bd5227",
+  "icons": [
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
