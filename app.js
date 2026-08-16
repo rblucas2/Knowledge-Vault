@@ -367,7 +367,8 @@
       <div class="coll-head"><span class="em">${c.emoji}</span>
         <div><div class="nm">${esc(c.name)}</div><div class="ct">${list.length} ${list.length === 1 ? "conteúdo" : "conteúdos"}</div></div>
       </div>
-      <button class="btn btn-primary btn-block" style="margin-top:14px" data-action="open-chat" data-id="${id}">💬 Conversar sobre esta pasta</button>`;
+      <button class="btn btn-primary btn-block" style="margin-top:14px" data-action="open-chat" data-id="${id}">💬 Conversar sobre esta pasta</button>
+      <button class="btn btn-ghost btn-block" style="margin-top:8px" data-action="export-collection" data-id="${id}" ${list.length ? "" : "disabled"}>⬇ Exportar pasta (.md, para um Projeto Claude)</button>`;
 
     // Cartão do PLANO
     if (c.plan) {
@@ -1077,6 +1078,15 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
     if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
     else { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
   }
+  /** Junta todos os conteúdos de uma pasta num único documento Markdown — pensado para servir
+   *  de "conhecimento" a um Projeto do Claude (um chat por pasta, feito pelo próprio utilizador
+   *  em claude.ai), já que cada entrada individual (entryToText) fica sempre disponível lá dentro. */
+  function collectionToText(c, list) {
+    const L = [`# ${c.emoji} ${c.name}`, "", `${list.length} conteúdo(s) guardado(s) desta pasta da Knowledge Vault.`, ""];
+    list.forEach((e) => { L.push("---", "", entryToText(e), ""); });
+    return L.join("\n");
+  }
+
   function entryToText(e) {
     const s = e.summary || {};
     const L = [];
@@ -1121,6 +1131,15 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
       case "gen-plan": genPlan(id); break;
       case "view-plan": go({ name: "plan", id }); break;
       case "open-chat": go({ name: "chat", id }); break;
+      case "export-collection": {
+        const c = collById(id); const list = entriesInCollection(id);
+        if (!c || !list.length) break;
+        const blob = new Blob([collectionToText(c, list)], { type: "text/markdown" });
+        const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+        a.download = `${c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "pasta"}.md`; a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        break;
+      }
       case "copy-plan": { const c = collById(id); copy(planToText(c)); UI.toast("Plano copiado"); break; }
       case "del-plan":
         UI.openSheet(`<h2>Apagar plano?</h2><p class="muted">Apaga só o plano consolidado. Os conteúdos da pasta mantêm-se.</p>
