@@ -78,6 +78,12 @@
   }
   document.title = origTitle;
   var text = out.join('\\n\\n');
+  // tenta copiar logo automaticamente (poupa o clique em "Copiar tudo") — só funciona nalguns
+  // browsers desktop, porque o "user activation" da Clipboard API costuma perder-se depois de
+  // vários awaits; falha silenciosamente e o botao manual (clique novo e direto, sempre fiavel
+  // com execCommand) fica como reserva — sobretudo em mobile, onde isto normalmente falha.
+  var autoCopied = false;
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); autoCopied = true; } } catch (e) {}
   // caixa de texto real (nao prompt()) — em varios browsers moveis o prompt() so mostra
   // uma linha e perde as quebras de linha entre videos; a textarea preserva-as sempre,
   // e o botao "Copiar" corre num clique novo e direto (execCommand funciona sempre assim).
@@ -86,14 +92,14 @@
   var box = document.createElement('div');
   box.style.cssText = 'background:#fff;border-radius:12px;padding:16px;max-width:560px;width:100%;max-height:82vh;display:flex;flex-direction:column;gap:10px;box-shadow:0 20px 60px rgba(0,0,0,.5)';
   var h = document.createElement('div');
-  h.textContent = links.length + ' vídeo(s) encontrado(s) — copia tudo e cola no Knowledge Vault em "Vários"';
+  h.textContent = links.length + ' vídeo(s) encontrado(s)' + (autoCopied ? ' — já copiado ✓, cola no Knowledge Vault em "Vários"' : ' — copia tudo e cola no Knowledge Vault em "Vários"');
   h.style.cssText = 'font-weight:700;color:#111;font-size:14px;line-height:1.4';
   var ta = document.createElement('textarea');
   ta.value = text; ta.readOnly = true;
   ta.style.cssText = 'width:100%;flex:1;min-height:220px;font-family:monospace;font-size:12px;color:#111;background:#f6f2ea;border:1px solid #d3c9b3;border-radius:8px;padding:10px;box-sizing:border-box';
   var row = document.createElement('div'); row.style.cssText = 'display:flex;gap:8px';
   var copyBtn = document.createElement('button');
-  copyBtn.textContent = '⧉ Copiar tudo';
+  copyBtn.textContent = autoCopied ? '⧉ Copiado ✓ (copiar de novo)' : '⧉ Copiar tudo';
   copyBtn.style.cssText = 'flex:1;padding:13px;background:#bd5227;color:#fff;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer';
   copyBtn.onclick = function(){
     ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
@@ -741,7 +747,8 @@ Legenda ou transcrição do 1º vídeo…
 
 https://tiktok.com/@.../video/2
 Legenda ou transcrição do 2º vídeo…"></textarea>
-          <div class="kv-fieldnote">Um vídeo por bloco: link (opcional) na 1ª linha, depois a legenda/transcrição. Separa blocos com uma linha em branco antes do próximo link — ou usa uma linha só com <code>---</code> se o texto não começar por um link.</div>
+          <button type="button" class="btn btn-ghost btn-sm btn-block" id="b-paste" style="margin-top:6px">📋 Colar da área de transferência</button>
+          <div class="kv-fieldnote">Vindo do bookmarklet do TikTok? Copia lá o texto e usa o botão acima — evita ter de fazer "colar" manualmente. Um vídeo por bloco: link (opcional) na 1ª linha, depois a legenda/transcrição. Separa blocos com uma linha em branco antes do próximo link — ou usa uma linha só com <code>---</code> se o texto não começar por um link.</div>
         </label>
         <div id="b-count" class="tiny muted"></div>
         <div id="bulk-status"></div>
@@ -763,6 +770,19 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
       $("#b-count").textContent = n ? `${n} vídeo${n === 1 ? "" : "s"} detetado${n === 1 ? "" : "s"}` : "";
     };
     $("#b-raw").addEventListener("input", updateCount);
+
+    $("#b-paste").addEventListener("click", async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (!text || !text.trim()) { UI.toast("Área de transferência vazia."); return; }
+        const ta = $("#b-raw");
+        ta.value = ta.value.trim() ? ta.value.trim() + "\n\n" + text : text;
+        updateCount();
+        UI.toast("Colado ✓");
+      } catch (e) {
+        UI.toast("Não consegui aceder à área de transferência — cola manualmente (premir continuado no campo).");
+      }
+    });
 
     $("#bulkBtn").addEventListener("click", async () => {
       const blocks = parseBulkBlocks($("#b-raw").value);
@@ -943,8 +963,8 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
         <ol class="tiny muted" style="padding-left:18px;line-height:1.7;margin:0">
           <li>Arrasta o botão abaixo para os favoritos do teu browser (ou copia o código e cria um favorito à mão).</li>
           <li>No telemóvel/PC, abre <code>tiktok.com/@teu_user/favorites</code> com sessão iniciada.</li>
-          <li>Clica nesse favorito — recolhe os vídeos visíveis e a legenda de cada um, e copia tudo formatado.</li>
-          <li>Volta aqui, abre a pasta certa e cola em "📋 Vários".</li>
+          <li>Clica nesse favorito — recolhe os vídeos visíveis e a legenda de cada um, e tenta copiar tudo automaticamente (em muitos browsers já não precisas de clicar em "Copiar").</li>
+          <li>Volta aqui, abre a pasta certa em "📋 Vários" e usa o botão "Colar da área de transferência" — evita ter de fazer "colar" à mão.</li>
         </ol>
         <a id="tkBookmarklet" class="btn btn-primary btn-block" href="#" onclick="return false" draggable="true">📲 Recolher pasta do TikTok</a>
         <button class="btn btn-ghost btn-block" id="tkCopyCode">⧉ Copiar código do atalho</button>
