@@ -158,7 +158,13 @@
   window.UI = UI;
 
   /* ---------- dados ---------- */
-  function vault() { return Store.ensure("vault", { entries: [], collections: [], chats: {} }); }
+  function vault() {
+    const v = Store.ensure("vault", { entries: [], collections: [] });
+    // limpeza única: o chat por pasta (Gemini/Claude via chave de API) foi removido a favor de
+    // colar planos feitos num Projeto do claude.ai — o histórico de conversas ficou obsoleto.
+    if (v.chats) Store.update("vault", (s) => { delete s.chats; }, { silent: true });
+    return v;
+  }
   const entries = () => vault().entries || [];
   const collections = () => vault().collections || [];
   const entryById = (id) => entries().find((e) => e.id === id);
@@ -193,12 +199,6 @@
   function entriesInCollection(id) {
     return entries().filter((e) => e.collectionId === id).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }
-  function chatHistory(id) { return (vault().chats || {})[id] || []; }
-  function pushChatMsg(id, role, text) {
-    Store.update("vault", (v) => { v.chats = v.chats || {}; (v.chats[id] = v.chats[id] || []).push({ role, text, when: Date.now() }); });
-  }
-  function clearChat(id) { Store.update("vault", (v) => { if (v.chats) v.chats[id] = []; }); }
-
   /* ---------- router ---------- */
   let route = { name: "library" };
   const libFilter = { q: "", type: "", collection: "", fav: false };
@@ -226,7 +226,6 @@
     if (n === "detail") { setTab("library"); renderDetail(route.id); return; }
     if (n === "collection") { setTab("folders"); renderCollection(route.id); return; }
     if (n === "plan") { setTab("folders"); renderPlan(route.id); return; }
-    if (n === "chat") { setTab("folders"); renderChat(route.id); return; }
     setTab(n);
     if (n === "library") renderLibrary();
     else if (n === "folders") renderFolders();
@@ -373,30 +372,27 @@
       <div class="coll-head"><span class="em">${c.emoji}</span>
         <div><div class="nm">${esc(c.name)}</div><div class="ct">${list.length} ${list.length === 1 ? "conteúdo" : "conteúdos"}</div></div>
       </div>
-      <button class="btn btn-primary btn-block" style="margin-top:14px" data-action="open-chat" data-id="${id}">💬 Conversar sobre esta pasta</button>
       <button class="btn btn-ghost btn-block" style="margin-top:8px" data-action="export-collection" data-id="${id}" ${list.length ? "" : "disabled"}>⬇ Exportar pasta (.md, para um Projeto Claude)</button>`;
 
-    // Cartão do PLANO
+    // Cartão do PLANO — colado de uma conversa num Projeto do claude.ai (não gerado dentro da app)
     if (c.plan) {
       const p = c.plan;
       html += `<div class="plan-card" style="margin-top:14px">
         <div class="pk"><span class="dot"></span> Plano da pasta</div>
         <div class="pt">${esc(p.title)}</div>
         ${p.overview ? `<div class="po">${esc(p.overview)}</div>` : ""}
-        <div class="pmeta">gerado de ${p.entryCount || list.length} conteúdo(s) · ${relDate(p.generatedAt)}</div>
+        <div class="pmeta">${relDate(p.generatedAt)}</div>
         <div class="prow">
           <button class="btn btn-primary btn-sm" data-action="view-plan" data-id="${id}">Ver plano completo</button>
-          <button class="btn btn-sm" data-action="gen-plan" data-id="${id}">↻ Atualizar</button>
+          <button class="btn btn-sm" data-action="open-import-plan" data-id="${id}">📋 Substituir (colar novo)</button>
         </div>
       </div>`;
     } else {
-      const canGen = AI.configured && list.length >= 1;
       html += `<div class="plan-card plan-empty" style="margin-top:14px">
         <div class="pk" style="justify-content:center"><span class="dot"></span> Plano da pasta</div>
         <div class="pt" style="margin-top:8px">Junta tudo num só plano</div>
-        <div class="ps">Em vez de resumos soltos, crio uma guia única a partir de todos os conteúdos desta pasta — um plano que podes seguir.</div>
-        <button class="btn btn-primary" data-action="gen-plan" data-id="${id}" ${canGen ? "" : "disabled"}>✨ Gerar plano desta pasta</button>
-        ${!AI.configured ? `<div class="kv-fieldnote">Configura a IA em Definições (grátis com o Gemini).</div>` : (!list.length ? `<div class="kv-fieldnote">Adiciona conteúdos a esta pasta primeiro.</div>` : "")}
+        <div class="ps">Pede ao Claude, num Projeto com os conteúdos desta pasta (usa "Exportar pasta" acima), para te fazer um plano — depois cola aqui a resposta e fica com este layout visual.</div>
+        <button class="btn btn-primary" data-action="open-import-plan" data-id="${id}">📋 Importar plano</button>
       </div>`;
     }
 
@@ -426,7 +422,7 @@
         <div class="plan-title">${esc(p.title)}</div>
       </div>
       <div class="row wrap" style="margin-top:14px;gap:8px">
-        <button class="btn btn-sm" data-action="gen-plan" data-id="${id}">↻ Regenerar</button>
+        <button class="btn btn-sm" data-action="open-import-plan" data-id="${id}">📋 Substituir</button>
         <button class="btn btn-sm" data-action="copy-plan" data-id="${id}">⧉ Copiar</button>
         <button class="btn btn-sm btn-danger" data-action="del-plan" data-id="${id}">🗑 Apagar plano</button>
       </div>`;
@@ -448,78 +444,86 @@
     view.innerHTML = html;
   }
 
-  /* ---------- Chat sobre uma pasta ---------- */
-  function chatBubbleHTML(m) {
-    return `<div class="chat-msg ${m.role}"><div class="bubble">${nl2p(m.text)}</div></div>`;
-  }
-  function renderChat(id) {
-    const c = collById(id);
-    if (!c) { go({ name: "folders" }); return; }
-    const list = entriesInCollection(id);
-    const hist = chatHistory(id);
-    setHeader("folders", "");
-    $("#topTitle").textContent = "Conversar";
-    $("#topSub").textContent = c.name;
-
-    const msgsHtml = hist.length ? hist.map(chatBubbleHTML).join("")
-      : `<div class="empty" style="padding:34px 12px"><span class="ico">💬</span><div class="big-t">Pergunta o que quiseres</div>
-          <div>${list.length ? `Baseio-me nos ${list.length} conteúdo(s) desta pasta.` : "A pasta ainda está vazia — adiciona conteúdos para eu ter com que responder."}</div></div>`;
-
-    view.innerHTML = `
-      <button class="btn btn-ghost btn-sm" data-action="to-collection" data-id="${id}" style="margin:6px 0 2px;padding-left:0">‹ ${esc(c.emoji + " " + c.name)}</button>
-      <div class="chat-thread" id="chatThread">${msgsHtml}</div>
-      <div class="chat-inputbar">
-        <textarea id="chatInput" rows="1" placeholder="${AI.configured ? "Escreve a tua pergunta…" : "Configura a IA em Definições primeiro"}" ${AI.configured ? "" : "disabled"}></textarea>
-        <button class="btn btn-primary btn-icon" id="chatSend" aria-label="Enviar" ${AI.configured ? "" : "disabled"}>➤</button>
-      </div>
-      ${hist.length ? `<button class="btn btn-ghost btn-sm" id="chatClear" style="margin-top:8px">🗑 Limpar conversa</button>` : ""}
-    `;
-    const thread = $("#chatThread"); thread.scrollTop = thread.scrollHeight;
-
-    async function send() {
-      const inp = $("#chatInput");
-      const msg = (inp.value || "").trim();
-      if (!msg) return;
-      if (!AI.configured) { UI.toast("Configura a IA em Definições"); return; }
-      const before = chatHistory(id);
-      pushChatMsg(id, "user", msg);
-      renderChat(id);
-      const t2 = $("#chatThread");
-      t2.insertAdjacentHTML("beforeend", `<div class="chat-msg assistant loading"><div class="bubble"><span class="spin"></span></div></div>`);
-      t2.scrollTop = t2.scrollHeight;
-      try {
-        const reply = await AI.chat(c.name, entriesInCollection(id), before, msg);
-        pushChatMsg(id, "assistant", reply);
-      } catch (err) {
-        pushChatMsg(id, "assistant", "⚠️ " + (err.message || "Falhou a resposta."));
+  /* ---------- Importar plano (colado de uma conversa num Projeto do claude.ai) ---------- */
+  // Formato esperado (o mesmo que "planToText" já produz, por isso um plano exportado com
+  // "⧉ Copiar" e colado de volta fica idêntico — e é o formato que se pede ao Claude para usar):
+  //   # Título do plano
+  //   Visão geral em 1-3 frases.
+  //   ## 1. Nome do primeiro bloco
+  //   - primeira ação (https://link-opcional.com)
+  //   - segunda ação
+  //   ## Princípios
+  //   - princípio 1
+  function planFromText(raw) {
+    const lines = (raw || "").replace(/\r\n/g, "\n").split("\n");
+    let i = 0;
+    let title = "Plano importado";
+    if (lines[0] && lines[0].trim().startsWith("# ")) { title = lines[0].trim().slice(2).trim() || title; i = 1; }
+    const overviewLines = [];
+    while (i < lines.length && !lines[i].trim().startsWith("## ")) {
+      if (lines[i].trim()) overviewLines.push(lines[i].trim());
+      i++;
+    }
+    const overview = overviewLines.join(" ");
+    const steps = []; const principles = [];
+    let current = null;
+    for (; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (t.startsWith("## ")) {
+        const headingRaw = t.slice(3).trim();
+        if (/^princ[ií]pios?$/i.test(headingRaw)) { current = { principles: true }; }
+        else { current = { heading: headingRaw.replace(/^\d+\.\s*/, ""), items: [] }; steps.push(current); }
+      } else if (t.startsWith("- ") && current) {
+        const raw2 = t.slice(2).trim();
+        if (current.principles) { principles.push(raw2); continue; }
+        const m = raw2.match(/^(.*)\s\((https?:\/\/[^\s)]+)\)$/);
+        current.items.push(m ? { text: m[1].trim(), source: 0, url: m[2] } : raw2);
       }
-      renderChat(id);
     }
-
-    const sendBtn = $("#chatSend");
-    if (sendBtn) sendBtn.addEventListener("click", send);
-    const inp = $("#chatInput");
-    if (inp) {
-      inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
-      setTimeout(() => inp.focus(), 50);
-    }
-    const clearBtn = $("#chatClear");
-    if (clearBtn) clearBtn.addEventListener("click", () => { clearChat(id); renderChat(id); });
+    if (!overview && !steps.length && !principles.length) return null;
+    return AI.normalizePlan({ title, overview, steps, principles });
   }
-
-  async function genPlan(id) {
+  function openImportPlan(id) {
     const c = collById(id); if (!c) return;
-    if (!AI.configured) { UI.toast("Configura a IA em Definições"); return; }
-    const list = entriesInCollection(id);
-    if (!list.length) { UI.toast("Pasta vazia — adiciona conteúdos primeiro"); return; }
-    UI.openSheet(`<div class="gen-box"><span class="spin"></span><div class="t">A criar o plano da pasta…</div><div class="s">A juntar ${list.length} conteúdo(s).</div></div>`);
-    try {
-      const plan = await AI.summarizePlan(c.name, list);
-      plan.generatedAt = Date.now(); plan.entryCount = list.length;
+    const existingText = c.plan ? planToText(c) : "";
+    const html = `
+      <h2>Importar plano</h2>
+      <p class="muted tiny" style="margin:2px 0 0">Pede ao Claude (num Projeto com os conteúdos desta pasta) para te dar o plano neste formato, depois cola aqui a resposta:</p>
+      <pre class="kv-fieldnote" style="white-space:pre-wrap;margin-top:8px"># Título do plano
+Visão geral em 1-3 frases.
+
+## 1. Nome do bloco
+- ação concreta (link opcional)
+- outra ação
+
+## Princípios
+- regra a lembrar</pre>
+      <div class="form-grid">
+        <label class="field"><span>Plano (colado)</span>
+          <textarea id="plan-raw" style="min-height:240px" placeholder="Cola aqui a resposta do Claude…">${esc(existingText)}</textarea>
+          <button type="button" class="btn btn-ghost btn-sm btn-block" id="plan-paste" style="margin-top:6px">📋 Colar da área de transferência</button>
+        </label>
+        <div id="plan-import-status"></div>
+        <button class="btn btn-primary btn-block" id="plan-import-btn">Guardar plano</button>
+        <button class="btn btn-ghost btn-block" data-action="close-sheet">Cancelar</button>
+      </div>`;
+    UI.openSheet(html);
+    $("#plan-paste").addEventListener("click", async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (!text || !text.trim()) { UI.toast("Área de transferência vazia."); return; }
+        $("#plan-raw").value = text;
+        UI.toast("Colado ✓");
+      } catch (e) { UI.toast("Não consegui aceder à área de transferência — cola manualmente."); }
+    });
+    $("#plan-import-btn").addEventListener("click", () => {
+      const plan = planFromText($("#plan-raw").value);
+      if (!plan) { $("#plan-import-status").innerHTML = `<div class="banner"><span class="ico">⚠️</span><div>Não reconheci nenhum plano neste texto — confirma o formato acima.</div></div>`; return; }
+      plan.generatedAt = Date.now();
       updateCollection(id, { plan });
-      UI.closeSheet(); UI.toast("Plano criado ✨");
+      UI.closeSheet(); UI.toast("Plano guardado ✓");
       go({ name: "plan", id });
-    } catch (err) { UI.closeSheet(); UI.toast(err.message || "Falhou a geração do plano"); }
+    });
   }
 
   /** Resolve a fonte (1, 2, 3…) de um item do plano na entrada real, usando plan.sources
@@ -529,16 +533,16 @@
     const id = plan.sources[source - 1];
     return id ? entryById(id) : null;
   }
-  /** Normaliza um item do plano (aceita string simples de planos antigos, ou {text, source}). */
+  /** Normaliza um item do plano: string simples, {text, source} (referencia um conteúdo da
+   *  pasta, planos antigos gerados na app), ou {text, url} (link solto, planos importados). */
   function planItem(it) { return typeof it === "string" ? { text: it, source: 0 } : (it || { text: "", source: 0 }); }
 
   function planItemHTML(plan, it) {
-    const { text, source } = planItem(it);
+    const { text, source, url } = planItem(it);
     const src = resolvePlanSource(plan, source);
-    if (!src) return `<li><span class="pi-tx">${esc(text)}</span></li>`;
-    const link = src.url
-      ? `<a class="plan-vid" href="${esc(src.url)}" target="_blank" rel="noopener">▶ Ver vídeo</a>`
-      : `<button class="plan-vid" data-action="open" data-id="${src.id}">▶ Ver fonte</button>`;
+    let link = "";
+    if (src) link = src.url ? `<a class="plan-vid" href="${esc(src.url)}" target="_blank" rel="noopener">▶ Ver vídeo</a>` : `<button class="plan-vid" data-action="open" data-id="${src.id}">▶ Ver fonte</button>`;
+    else if (url) link = `<a class="plan-vid" href="${esc(url)}" target="_blank" rel="noopener">▶ Abrir link</a>`;
     return `<li><span class="pi-tx">${esc(text)}</span>${link}</li>`;
   }
 
@@ -549,9 +553,10 @@
     (p.steps || []).forEach((st, i) => {
       L.push(`## ${i + 1}. ${st.heading}`);
       (st.items || []).forEach((raw) => {
-        const { text, source } = planItem(raw);
+        const { text, source, url } = planItem(raw);
         const src = resolvePlanSource(p, source);
-        L.push(`- ${text}` + (src && src.url ? ` (${src.url})` : ""));
+        const link = (src && src.url) || url || "";
+        L.push(`- ${text}` + (link ? ` (${link})` : ""));
       });
       L.push("");
     });
@@ -1148,9 +1153,8 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
           <button class="btn btn-ghost btn-block" data-action="close-sheet">Cancelar</button>`);
         $("#dc-yes").addEventListener("click", () => { removeCollection(id); UI.closeSheet(); go({ name: "folders" }); });
         break;
-      case "gen-plan": genPlan(id); break;
+      case "open-import-plan": openImportPlan(id); break;
       case "view-plan": go({ name: "plan", id }); break;
-      case "open-chat": go({ name: "chat", id }); break;
       case "export-collection": {
         const c = collById(id); const list = entriesInCollection(id);
         if (!c || !list.length) break;

@@ -68,74 +68,6 @@
     required: ["title", "tldr", "takeaways", "sections", "quotes", "actions", "topics"],
   };
 
-  // Esquema do PLANO consolidado de uma pasta
-  // Cada item do plano pode referenciar o vídeo/fonte de onde veio (para o utilizador ver a
-  // demonstração real) — "source" é o número da fonte (1, 2, 3…) tal como listado no prompt,
-  // ou 0 se o passo for genérico e não vier de nenhuma fonte específica.
-  const PLAN_STEP_ITEM_ANTHROPIC = { type: "object", additionalProperties: false, properties: { text: { type: "string" }, source: { type: "integer" } }, required: ["text", "source"] };
-  const PLAN_STEP_ITEM_GEMINI = { type: "OBJECT", properties: { text: { type: "STRING" }, source: { type: "INTEGER" } }, required: ["text", "source"] };
-  const PLAN_ANTHROPIC = {
-    type: "object", additionalProperties: false,
-    properties: {
-      title: { type: "string" }, overview: { type: "string" },
-      steps: { type: "array", items: { type: "object", additionalProperties: false, properties: { heading: { type: "string" }, items: { type: "array", items: PLAN_STEP_ITEM_ANTHROPIC } }, required: ["heading", "items"] } },
-      principles: { type: "array", items: { type: "string" } },
-    },
-    required: ["title", "overview", "steps", "principles"],
-  };
-  const PLAN_GEMINI = {
-    type: "OBJECT",
-    properties: {
-      title: { type: "STRING" }, overview: { type: "STRING" },
-      steps: { type: "ARRAY", items: { type: "OBJECT", properties: { heading: { type: "STRING" }, items: { type: "ARRAY", items: PLAN_STEP_ITEM_GEMINI } }, required: ["heading", "items"] } },
-      principles: { type: "ARRAY", items: { type: "STRING" } },
-    },
-    required: ["title", "overview", "steps", "principles"],
-  };
-  const planSchemaFor = (p) => (p === "anthropic" ? PLAN_ANTHROPIC : PLAN_GEMINI);
-
-  function planSystemPrompt() {
-    return [
-      "És um assistente que consolida VÁRIOS resumos de vídeos/podcasts sobre um mesmo tema",
-      "numa ÚNICA guia prática e APLICÁVEL — algo que o utilizador possa seguir passo a passo, não",
-      "uma teoria abstrata. Escreves em português de Portugal.",
-      "NÃO repitas o mesmo conteúdo várias vezes: sintetiza, junta o que é semelhante, resolve",
-      "contradições e organiza tudo numa progressão lógica (ex.: se for um plano de treino/exercício,",
-      "organiza por sessão/dia com séries, repetições e ordem; se for um plano de estudo, por etapas",
-      "com tempo estimado; adapta a estrutura ao tema, mas mantém-na sempre concreta e executável).",
-      "Preenche SEMPRE todos os campos. Guia dos campos:",
-      "- title: nome do plano (ex.: 'Plano de Alongamentos', 'Guia de Investimento').",
-      "- overview: 2 a 4 frases — o que é o plano e como usá-lo.",
-      "- steps: os blocos/fases do plano em ordem (ex.: 'Dia 1 — Pernas', 'Semana 1'). Cada bloco tem",
-      "  'heading' e 'items' — a lista de ações concretas desse bloco.",
-      "- Cada item de 'items' é um objeto { text, source }. 'text' é a ação em si, específica e",
-      "  concreta (inclui duração, repetições, técnica ou quantidade sempre que existirem nas fontes —",
-      "  ex.: 'Alongamento de isquiotibiais sentado — 45s por perna, sem saltar'). 'source' é o número",
-      "  da fonte (1, 2, 3…) de onde essa ação/exercício vem, EXATAMENTE como aparece no texto",
-      "  '=== N. título ===' que te é dado — usa isto sempre que o passo corresponder a um vídeo",
-      "  concreto, para o utilizador poder abrir esse vídeo e ver a demonstração. Usa 0 só quando o",
-      "  passo é um conselho geral que não vem de nenhuma fonte específica.",
-      "- principles: princípios/regras transversais a lembrar (poucos, essenciais).",
-    ].join(" ");
-  }
-
-  function entrySummaryText(e) {
-    const s = e.summary || {};
-    const L = [];
-    if (s.tldr) L.push(s.tldr);
-    if (s.takeaways && s.takeaways.length) L.push("Pontos: " + s.takeaways.join("; "));
-    if (s.sections && s.sections.length) s.sections.forEach((x) => L.push(`${x.heading}: ${x.body}`));
-    if (s.actions && s.actions.length) L.push("Ações: " + s.actions.join("; "));
-    if (!L.length && e.raw) L.push(e.raw.slice(0, 1500));
-    return L.join("\n");
-  }
-
-  function planUserContent(name, entries) {
-    const head = `Tema da pasta: ${name}\nTenho ${entries.length} conteúdo(s) guardado(s) sobre este tema. Junta o melhor de todos num só plano prático.\n`;
-    const bodies = entries.map((e, i) => `=== ${i + 1}. ${e.title} ===\n${entrySummaryText(e)}`).join("\n\n");
-    return head + "\n" + bodies;
-  }
-
   /* ---------- serviços ---------- */
   const PROVIDERS = {
     gemini: {
@@ -299,28 +231,6 @@
     Store.update("sys", (s) => { s.ai = s.ai || {}; s.ai.provider = provider; s.ai.model = model; });
   }
 
-  /* ---------- chat sobre uma pasta ---------- */
-  function chatSystemPrompt() {
-    return [
-      "És um assistente que conversa sobre o conteúdo de uma pasta da biblioteca de conhecimento pessoal do",
-      "utilizador (resumos de podcasts, TikToks, vídeos e artigos que ele guardou sobre um tema).",
-      "Respondes com base no conteúdo fornecido abaixo — podes explicar, comparar, resumir, sugerir passos",
-      "práticos ou construir algo concreto (ex.: um plano) a partir dele. Se a pergunta pedir algo que não está",
-      "no conteúdo fornecido, dizes isso claramente antes de complementares com conhecimento geral teu — nunca",
-      "finges que uma informação vem das fontes guardadas quando não vem. Português de Portugal, direto, sem",
-      "rodeios. Quando a resposta vier claramente de um conteúdo específico, refere-o pelo título.",
-    ].join(" ");
-  }
-  function chatUserContent(collectionName, entries, history, message) {
-    const context = entries.length
-      ? entries.map((e, i) => `=== ${i + 1}. ${e.title} ===\n${entrySummaryText(e)}`).join("\n\n")
-      : "(Esta pasta ainda não tem conteúdos guardados.)";
-    let out = `Pasta: "${collectionName}" — ${entries.length} conteúdo(s) guardado(s):\n\n${context}\n\n---\n`;
-    if (history && history.length) out += history.map((m) => (m.role === "user" ? "Utilizador: " : "Assistente: ") + m.text).join("\n") + "\n";
-    out += "Utilizador: " + message;
-    return out;
-  }
-
   /* ---------- API pública ---------- */
   const AI = {
     PROVIDERS,
@@ -352,50 +262,24 @@
       return normalize(parsed);
     },
 
-    /** Gera um PLANO consolidado a partir de todas as entradas de uma pasta. */
-    async summarizePlan(collectionName, entries) {
-      const a = this.settings;
-      const provider = a.provider || "gemini";
-      if (!a.apiKey) throw new Error("Falta a chave da API. Vai a Definições e adiciona a tua chave (grátis com o Gemini).");
-      if (!entries || !entries.length) throw new Error("A pasta está vazia. Adiciona conteúdos primeiro.");
-      const model = (a.model && a.model.trim()) || PROVIDERS[provider].defaultModel;
-      const { text: raw, model: workingModel } = await callWithFallback(provider, a.apiKey, model, {
-        system: planSystemPrompt(), user: planUserContent(collectionName, entries), schema: planSchemaFor(provider), maxTokens: 8000,
-      });
-      rememberWorkingModel(provider, workingModel);
-      let parsed;
-      try { parsed = JSON.parse(cleanJSON(raw)); }
-      catch (e) { throw new Error("Não foi possível ler o plano devolvido (JSON inválido). Tenta outro modelo em Definições."); }
-      const plan = normalizePlan(parsed);
-      // guarda os ids das fontes na mesma ordem/numeração usada no prompt (1, 2, 3…),
-      // para os links "Ver vídeo" continuarem corretos mesmo que a pasta mude depois.
-      plan.sources = entries.map((e) => e.id);
-      return plan;
-    },
-
-    /** Uma mensagem de chat sobre uma pasta — `history` é [{role:'user'|'assistant', text}], sem incluir `message`. */
-    async chat(collectionName, entries, history, message) {
-      const a = this.settings;
-      const provider = a.provider || "gemini";
-      if (!a.apiKey) throw new Error("Falta a chave da API. Vai a Definições e adiciona a tua chave (grátis com o Gemini).");
-      const model = (a.model && a.model.trim()) || PROVIDERS[provider].defaultModel;
-      const { text, model: workingModel } = await callWithFallback(provider, a.apiKey, model, {
-        system: chatSystemPrompt(), user: chatUserContent(collectionName, entries || [], history || [], message), schema: null, maxTokens: 2000,
-      });
-      rememberWorkingModel(provider, workingModel);
-      return text.trim();
-    },
+    // Planos de pasta deixaram de ser gerados aqui (ver "Importar plano" em app.js, que cola a
+    // resposta de uma conversa num Projeto do claude.ai) — normalizePlan continua a ser usado
+    // para validar/sanear esse texto colado antes de guardar.
+    normalizePlan,
   };
 
-  /** Normaliza um item de passo do plano para { text, source } — aceita tanto o formato novo
-   *  (objeto) como texto simples (planos antigos, guardados antes desta atualização). */
+  /** Normaliza um item de passo do plano para { text, source } ou { text, url } — aceita texto
+   *  simples, um item de plano antigo (gerado na app, referencia um conteúdo por "source"), ou
+   *  um item de plano importado (colado do claude.ai, pode trazer um "url" solto). */
   function normalizePlanItem(v) {
     if (v == null) return null;
     if (typeof v === "string") { const t = v.trim(); return t ? { text: t, source: 0 } : null; }
     const text = (v.text || "").trim();
     if (!text) return null;
     const source = Number.isInteger(v.source) ? v.source : 0;
-    return { text, source: source > 0 ? source : 0 };
+    const out = { text, source: source > 0 ? source : 0 };
+    if (v.url && typeof v.url === "string") out.url = v.url.trim();
+    return out;
   }
 
   function normalizePlan(p) {
