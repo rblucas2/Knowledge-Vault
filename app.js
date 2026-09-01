@@ -212,7 +212,8 @@
   const titles = {
     library: ["Biblioteca", "o teu conhecimento, organizado"],
     folders: ["Pastas", "coleções por tema"],
-    settings: ["Definições", "IA, sincronização e cópia"],
+    planos: ["Planos", "planos consolidados por pasta"],
+    settings: ["Definições", "sincronização e cópia"],
   };
   function setHeader(name, sub) {
     const t = titles[name];
@@ -229,6 +230,7 @@
     setTab(n);
     if (n === "library") renderLibrary();
     else if (n === "folders") renderFolders();
+    else if (n === "planos") renderPlanos();
     else if (n === "settings") renderSettings();
   }
 
@@ -353,6 +355,35 @@
     view.innerHTML = html;
   }
 
+  /* ---------- Planos (exportar pasta / importar plano) ---------- */
+  function renderPlanos() {
+    setHeader("planos");
+    const colls = collections();
+    let html = `<p class="kv-fieldnote" style="margin-top:2px">Exporta os conteúdos de uma pasta para um Projeto do claude.ai, pede um plano, e cola a resposta aqui para essa pasta.</p>`;
+    if (!colls.length) {
+      html += `<div class="empty"><span class="ico">🗂️</span><div class="big-t">Ainda não tens pastas</div><div>Cria uma pasta em "Pastas" para poderes gerar um plano.</div>
+        <button class="btn btn-primary" style="margin-top:16px" data-action="to-folders">Ir a Pastas</button></div>`;
+    } else {
+      html += `<div class="stack" style="margin-top:12px">` + colls.map((c) => {
+        const list = entriesInCollection(c.id);
+        return `<div class="card pad-sm stack" style="gap:8px">
+          <div class="row between" style="align-items:center">
+            <div class="row" style="gap:8px;align-items:center"><span style="font-size:1.2rem">${c.emoji}</span><b>${esc(c.name)}</b>${c.plan ? `<span class="plan-flag">PLANO</span>` : ""}</div>
+            <span class="tiny muted">${list.length} ${list.length === 1 ? "conteúdo" : "conteúdos"}</span>
+          </div>
+          <div class="row wrap" style="gap:8px">
+            <button class="btn btn-ghost btn-sm" data-action="export-collection" data-id="${c.id}" ${list.length ? "" : "disabled"}>⬇ Exportar pasta</button>
+            ${c.plan
+              ? `<button class="btn btn-sm" data-action="view-plan" data-id="${c.id}">Ver plano</button>
+                 <button class="btn btn-ghost btn-sm" data-action="open-import-plan" data-id="${c.id}">📋 Substituir</button>`
+              : `<button class="btn btn-primary btn-sm" data-action="open-import-plan" data-id="${c.id}">📋 Importar plano</button>`}
+          </div>
+        </div>`;
+      }).join("") + `</div>`;
+    }
+    view.innerHTML = html;
+  }
+
   /* ---------- Vista de pasta (com plano consolidado) ---------- */
   function renderCollection(id) {
     const c = collById(id);
@@ -371,10 +402,9 @@
       </div>
       <div class="coll-head"><span class="em">${c.emoji}</span>
         <div><div class="nm">${esc(c.name)}</div><div class="ct">${list.length} ${list.length === 1 ? "conteúdo" : "conteúdos"}</div></div>
-      </div>
-      <button class="btn btn-ghost btn-block" style="margin-top:8px" data-action="export-collection" data-id="${id}" ${list.length ? "" : "disabled"}>⬇ Exportar pasta (.md, para um Projeto Claude)</button>`;
+      </div>`;
 
-    // Cartão do PLANO — colado de uma conversa num Projeto do claude.ai (não gerado dentro da app)
+    // Cartão do PLANO — exportar pasta / importar plano ficam no separador "Planos"
     if (c.plan) {
       const p = c.plan;
       html += `<div class="plan-card" style="margin-top:14px">
@@ -384,15 +414,13 @@
         <div class="pmeta">${relDate(p.generatedAt)}</div>
         <div class="prow">
           <button class="btn btn-primary btn-sm" data-action="view-plan" data-id="${id}">Ver plano completo</button>
-          <button class="btn btn-sm" data-action="open-import-plan" data-id="${id}">📋 Substituir (colar novo)</button>
         </div>
       </div>`;
     } else {
       html += `<div class="plan-card plan-empty" style="margin-top:14px">
         <div class="pk" style="justify-content:center"><span class="dot"></span> Plano da pasta</div>
-        <div class="pt" style="margin-top:8px">Junta tudo num só plano</div>
-        <div class="ps">Pede ao Claude, num Projeto com os conteúdos desta pasta (usa "Exportar pasta" acima), para te fazer um plano — depois cola aqui a resposta e fica com este layout visual.</div>
-        <button class="btn btn-primary" data-action="open-import-plan" data-id="${id}">📋 Importar plano</button>
+        <div class="ps">Ainda sem plano — exporta esta pasta e importa um plano no separador <b>Planos</b>.</div>
+        <button class="btn btn-ghost" data-action="to-planos">Ir a Planos</button>
       </div>`;
     }
 
@@ -593,7 +621,6 @@ Visão geral em 1-3 frases.
       <div class="row wrap" style="margin-top:16px;gap:8px">
         <button class="btn btn-sm ${e.favorite ? "btn-soft" : ""}" data-action="fav" data-id="${e.id}">${e.favorite ? "★ Favorito" : "☆ Favorito"}</button>
         <button class="btn btn-sm" data-action="edit" data-id="${e.id}">✎ Editar</button>
-        <button class="btn btn-sm" data-action="regen" data-id="${e.id}">↻ Regenerar</button>
         <button class="btn btn-sm" data-action="copy" data-id="${e.id}">⧉ Copiar</button>
         <button class="btn btn-sm btn-danger" data-action="del" data-id="${e.id}">🗑 Apagar</button>
       </div>`;
@@ -631,32 +658,30 @@ Visão geral em 1-3 frases.
   }
 
   function openAdd(prefillCollection) {
-    const noKey = !AI.configured;
     const html = `
       <div class="row between" style="align-items:flex-start">
         <div>
           <h2>Adicionar conteúdo</h2>
-          <p class="muted tiny" style="margin:2px 0 0">Cola o link e a transcrição/legenda — gero um resumo estruturado.</p>
+          <p class="muted tiny" style="margin:2px 0 0">Cola o link e a transcrição/legenda, ou escreve as tuas notas.</p>
         </div>
         <button class="btn btn-ghost btn-sm" data-action="bulk-add" data-id="${esc(prefillCollection || "")}" title="Adicionar vários vídeos de uma vez">📋 Vários</button>
       </div>
-      ${noKey ? `<div class="banner" style="margin-top:12px"><span class="ico">🔑</span><div>Falta configurar a IA. <a class="link" data-action="go-settings" href="#">Configurar agora</a> — é grátis com o Google Gemini.</div></div>` : ""}
       <div class="form-grid" id="addForm">
         <label class="field"><span>Tipo</span>${typeSelector("outro")}</label>
         <label class="field"><span>Link (opcional)</span>
           <input id="f-url" type="url" placeholder="https://tiktok.com/... ou Spotify, YouTube…" />
           <div class="kv-fieldnote">O tipo é detetado automaticamente a partir do link.</div>
         </label>
-        <label class="field"><span>Título (opcional)</span>
-          <input id="f-title" type="text" placeholder="Se deixares vazio, eu crio um" /></label>
+        <label class="field"><span>Título</span>
+          <input id="f-title" type="text" placeholder="Se deixares vazio, uso o link ou 'Sem título'" /></label>
         <label class="field"><span>Pasta</span>
           <select id="f-coll">${collectionOptions(prefillCollection || "")}</select></label>
         <label class="field"><span>Transcrição, legenda ou notas</span>
-          <textarea id="f-raw" style="min-height:130px" placeholder="Cola aqui a transcrição do podcast, a legenda do TikTok, ou as tuas notas. Quanto mais texto, melhor o resumo."></textarea>
+          <textarea id="f-raw" style="min-height:130px" placeholder="Cola aqui a transcrição do podcast, a legenda do TikTok, ou as tuas notas."></textarea>
           <div class="kv-fieldnote">Dica: no YouTube, abre “Mostrar transcrição” e cola aqui. No TikTok, cola a legenda/descrição.</div>
         </label>
         <div id="add-status"></div>
-        <button class="btn btn-primary btn-block" id="genBtn" ${noKey ? "disabled" : ""}>✨ Gerar resumo e guardar</button>
+        <button class="btn btn-primary btn-block" id="genBtn">Guardar</button>
         <button class="btn btn-ghost btn-block" data-action="close-sheet">Cancelar</button>
       </div>`;
     UI.openSheet(html);
@@ -686,31 +711,22 @@ Visão geral em 1-3 frases.
       }
     });
 
-    $("#genBtn").addEventListener("click", async () => {
+    $("#genBtn").addEventListener("click", () => {
       const url = $("#f-url").value.trim();
       const title = $("#f-title").value.trim();
       const raw = $("#f-raw").value.trim();
       const collectionId = $("#f-coll").value || null;
       if (!url && !title && !raw) { $("#add-status").innerHTML = `<div class="banner"><span class="ico">⚠️</span><div>Adiciona pelo menos um link, título ou transcrição.</div></div>`; return; }
 
-      const btn = $("#genBtn"); btn.disabled = true;
-      $("#add-status").innerHTML = `<div class="gen-box"><span class="spin"></span><div class="t">A gerar o teu resumo…</div><div class="s">Pode demorar alguns segundos.</div></div>`;
-      try {
-        const summary = await AI.summarize({ title, type, url, raw });
-        const e = {
-          id: uid(), type, url: url || "", title: title || summary.title || "Sem título",
-          raw, collectionId, summary, favorite: false, actionsDone: {},
-          createdAt: Date.now(), updatedAt: Date.now(),
-        };
-        addEntry(e);
-        UI.closeSheet();
-        UI.toast("Resumo criado ✨");
-        go({ name: "detail", id: e.id });
-      } catch (err) {
-        console.error(err);
-        $("#add-status").innerHTML = `<div class="banner"><span class="ico">⚠️</span><div>${esc(err.message || "Falhou a geração.")}</div></div>`;
-        btn.disabled = false;
-      }
+      const e = {
+        id: uid(), type, url: url || "", title: title || "Sem título",
+        raw, collectionId, summary: {}, favorite: false, actionsDone: {},
+        createdAt: Date.now(), updatedAt: Date.now(),
+      };
+      addEntry(e);
+      UI.closeSheet();
+      UI.toast("Guardado ✓");
+      go({ name: "detail", id: e.id });
     });
   }
 
@@ -737,16 +753,14 @@ Visão geral em 1-3 frases.
   }
 
   function openBulkAdd(prefillCollection) {
-    const noKey = !AI.configured;
     const html = `
       <h2>Adicionar vários de uma vez</h2>
-      <p class="muted tiny" style="margin:2px 0 0">Cola vários vídeos seguidos — gero um resumo para cada um automaticamente.</p>
-      ${noKey ? `<div class="banner" style="margin-top:12px"><span class="ico">🔑</span><div>Falta configurar a IA. <a class="link" data-action="go-settings" href="#">Configurar agora</a> — é grátis com o Google Gemini.</div></div>` : ""}
+      <p class="muted tiny" style="margin:2px 0 0">Cola vários vídeos/notas seguidos — crio uma entrada para cada um.</p>
       <div class="form-grid" id="bulkForm">
         <label class="field"><span>Tipo (aplica-se a todos, exceto quando detetado pelo link)</span>${typeSelector("outro")}</label>
         <label class="field"><span>Pasta</span>
           <select id="b-coll">${collectionOptions(prefillCollection || "")}</select></label>
-        <label class="field"><span>Vídeos</span>
+        <label class="field"><span>Vídeos / notas</span>
           <textarea id="b-raw" style="min-height:220px" placeholder="https://tiktok.com/@.../video/1
 Legenda ou transcrição do 1º vídeo…
 
@@ -757,7 +771,7 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
         </label>
         <div id="b-count" class="tiny muted"></div>
         <div id="bulk-status"></div>
-        <button class="btn btn-primary btn-block" id="bulkBtn" ${noKey ? "disabled" : ""}>✨ Gerar resumos</button>
+        <button class="btn btn-primary btn-block" id="bulkBtn">Guardar todos</button>
         <button class="btn btn-ghost btn-block" data-action="close-sheet">Cancelar</button>
       </div>`;
     UI.openSheet(html);
@@ -795,49 +809,23 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
       if (!blocks.length) { $("#bulk-status").innerHTML = `<div class="banner"><span class="ico">⚠️</span><div>Não encontrei nenhum vídeo no texto colado.</div></div>`; return; }
 
       $("#bulkForm").querySelectorAll("input,textarea,select,button").forEach((el) => el.disabled = true);
-      let done = 0, failed = 0, lastErrMsg = "";
-      const failedBlocks = [];
-      for (let i = 0; i < blocks.length; i++) {
-        $("#bulk-status").innerHTML = `<div class="gen-box"><span class="spin"></span><div class="t">A gerar ${i + 1} de ${blocks.length}…</div><div class="s">${done} feito(s)${failed ? `, ${failed} falhou(aram)` : ""}</div></div>`;
-        const b = blocks[i];
+      $("#bulk-status").innerHTML = `<div class="gen-box"><span class="spin"></span><div class="t">A guardar…</div></div>`;
+      let done = 0;
+      for (const b of blocks) {
         const t = detectType(b.url) !== "outro" ? detectType(b.url) : type;
-        // sem legenda colada? tenta ir buscá-la automaticamente (TikTok/YouTube) antes de resumir
+        // sem legenda colada? tenta ir buscá-la automaticamente (TikTok/YouTube)
         if (!b.raw.trim() && b.url) { const meta = await fetchOEmbed(b.url); if (meta && meta.title) b.raw = meta.title; }
-        try {
-          const summary = await AI.summarize({ title: "", type: t, url: b.url, raw: b.raw });
-          addEntry({
-            id: uid(), type: t, url: b.url || "", title: summary.title || "Sem título",
-            raw: b.raw, collectionId, summary, favorite: false, actionsDone: {},
-            createdAt: Date.now(), updatedAt: Date.now(),
-          });
-          done++;
-        } catch (err) {
-          console.error(err);
-          failed++;
-          lastErrMsg = err.message || "";
-          failedBlocks.push(b);
-        }
-        // pequena pausa entre pedidos — lotes grandes (dezenas de vídeos) batem facilmente no
-        // limite por minuto do plano grátis do Gemini se disparados todos seguidos sem intervalo.
-        if (i < blocks.length - 1) await new Promise((r) => setTimeout(r, 350));
+        const firstLine = (b.raw.split("\n")[0] || "").trim();
+        addEntry({
+          id: uid(), type: t, url: b.url || "", title: firstLine.slice(0, 120) || "Sem título",
+          raw: b.raw, collectionId, summary: {}, favorite: false, actionsDone: {},
+          createdAt: Date.now(), updatedAt: Date.now(),
+        });
+        done++;
       }
       UI.closeSheet();
-      if (!failed) {
-        UI.toast(`${done} resumo(s) criado(s) ✨`);
-        if (collectionId) go({ name: "collection", id: collectionId }); else go({ name: "library" });
-        return;
-      }
-      // com falhas: mostra o que correu mal e deixa o texto dos que falharam pronto a copiar,
-      // para tentar de novo só esses (normalmente é limite de quota, que passa em pouco tempo).
+      UI.toast(`${done} guardado(s) ✓`);
       if (collectionId) go({ name: "collection", id: collectionId }); else go({ name: "library" });
-      const retryText = failedBlocks.map((b) => (b.url ? b.url + "\n" + b.raw : b.raw)).join("\n\n");
-      UI.openSheet(`<h2>${done} criado(s), ${failed} falhou(aram)</h2>
-        <p class="muted tiny">${esc(lastErrMsg || "Erro desconhecido")}</p>
-        <p class="muted tiny">Isto costuma ser o limite gratuito de pedidos por minuto — espera um pouco e tenta de novo só com os que falharam:</p>
-        <textarea readonly style="width:100%;min-height:160px;font-family:var(--mono);font-size:12px;margin-top:8px">${esc(retryText)}</textarea>
-        <button class="btn btn-primary btn-block" style="margin-top:12px" id="retryCopy">⧉ Copiar os que falharam</button>
-        <button class="btn btn-ghost btn-block" data-action="close-sheet">Fechar</button>`);
-      $("#retryCopy").addEventListener("click", () => { copy(retryText); UI.toast("Copiado — cola de novo em Vários"); });
     });
   }
 
@@ -852,7 +840,6 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
         <label class="field"><span>Pasta</span><select id="e-coll">${collectionOptions(e.collectionId)}</select></label>
         <label class="field"><span>Transcrição / notas</span><textarea id="e-raw" style="min-height:120px">${esc(e.raw || "")}</textarea></label>
         <button class="btn btn-primary btn-block" id="e-save">Guardar</button>
-        <button class="btn btn-soft btn-block" id="e-save-regen" ${AI.configured ? "" : "disabled"}>Guardar e regenerar resumo</button>
         <button class="btn btn-ghost btn-block" data-action="close-sheet">Cancelar</button>
       </div>`;
     UI.openSheet(html);
@@ -862,26 +849,6 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
 
     const collect = () => ({ type, title: $("#e-title").value.trim() || "Sem título", url: $("#e-url").value.trim(), collectionId: $("#e-coll").value || null, raw: $("#e-raw").value.trim() });
     $("#e-save").addEventListener("click", () => { saveEntry(id, collect()); UI.closeSheet(); UI.toast("Guardado"); renderDetail(id); });
-    $("#e-save-regen").addEventListener("click", async () => {
-      const patch = collect(); saveEntry(id, patch);
-      const btn = $("#e-save-regen"); btn.disabled = true; btn.innerHTML = `<span class="spin"></span> A regenerar…`;
-      try {
-        const summary = await AI.summarize({ title: patch.title, type: patch.type, url: patch.url, raw: patch.raw });
-        saveEntry(id, { summary });
-        UI.closeSheet(); UI.toast("Resumo atualizado ✨"); renderDetail(id);
-      } catch (err) { UI.closeSheet(); UI.toast(err.message || "Falhou a regeneração"); }
-    });
-  }
-
-  async function regen(id) {
-    const e = entryById(id); if (!e) return;
-    if (!AI.configured) { UI.toast("Configura a chave da API em Definições"); return; }
-    UI.openSheet(`<div class="gen-box"><span class="spin"></span><div class="t">A regenerar o resumo…</div></div>`);
-    try {
-      const summary = await AI.summarize({ title: e.title, type: e.type, url: e.url, raw: e.raw });
-      saveEntry(id, { summary });
-      UI.closeSheet(); UI.toast("Resumo atualizado ✨"); renderDetail(id);
-    } catch (err) { UI.closeSheet(); UI.toast(err.message || "Falhou"); }
   }
 
   function newCollectionSheet() {
@@ -933,35 +900,11 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
   function renderSettings() {
     setHeader("settings");
     const sys = Store.get("sys");
-    const ai = sys.ai || {};
     const sync = sys.sync || {};
     const theme = sys.theme || "auto";
     const stats = { itens: entries().length, pastas: collections().length };
-    const prov = ai.provider || "gemini";
-    const P = AI.PROVIDERS[prov];
 
     view.innerHTML = `
-      <div class="section-title">Inteligência (resumos)</div>
-      <div class="card stack">
-        <label class="field"><span>Serviço de IA</span>
-          <select id="s-provider">
-            <option value="gemini" ${prov === "gemini" ? "selected" : ""}>Google Gemini — grátis ✅</option>
-            <option value="anthropic" ${prov === "anthropic" ? "selected" : ""}>Anthropic Claude — pago</option>
-          </select></label>
-        <div class="banner info"><span class="ico">🔒</span><div>A tua chave fica só neste dispositivo (e sincronizada, se ligares o sync). As chamadas vão direto do teu browser para o serviço de IA.</div></div>
-        <label class="field"><span>Chave da API</span>
-          <input id="s-key" type="password" placeholder="${P.keyPlaceholder}" value="${esc(ai.apiKey || "")}" /></label>
-        <label class="field"><span>Modelo</span>
-          <input id="s-model" type="text" list="s-model-list" value="${esc((ai.model && ai.model.trim()) || P.defaultModel)}" />
-          <datalist id="s-model-list">${P.models.map((m) => `<option value="${m}"></option>`).join("")}</datalist></label>
-        <div class="kv-fieldnote">${P.keyHelp}</div>
-        <div class="row" style="gap:8px">
-          <button class="btn btn-primary" id="s-key-save">Guardar</button>
-          <button class="btn" id="s-key-test">Testar</button>
-        </div>
-        <div id="s-key-status"></div>
-      </div>
-
       <div class="section-title">Importar do TikTok</div>
       <div class="card stack">
         <div class="banner info"><span class="ico">🎵</span><div>Ao adicionar um link do TikTok ou YouTube, a legenda/título já vêm automaticamente (via oEmbed público). Para recolheres <b>uma pasta inteira</b> de Favoritos de uma vez, usa este atalho de um clique.</div></div>
@@ -1013,7 +956,7 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
 
       <div class="section-title plain">Sobre</div>
       <div class="card muted tiny">
-        <b>Knowledge Vault</b> — a tua biblioteca de conhecimento. PWA offline, dados no dispositivo, resumos com IA (Google Gemini grátis, ou Claude). Instala no telemóvel: menu do browser → “Adicionar ao ecrã principal”.
+        <b>Knowledge Vault</b> — a tua biblioteca de conhecimento. PWA offline, dados no dispositivo. Instala no telemóvel: menu do browser → “Adicionar ao ecrã principal”.
       </div>
     `;
 
@@ -1026,31 +969,6 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
     }
     const bmCopy = $("#tkCopyCode");
     if (bmCopy) bmCopy.addEventListener("click", () => { copy(bmHref); UI.toast("Código copiado — cria um novo favorito e cola-o no URL"); });
-
-    // — IA —
-    $("#s-provider").addEventListener("change", () => {
-      const val = $("#s-provider").value;
-      Store.update("sys", (s) => { s.ai = s.ai || {}; s.ai.provider = val; s.ai.model = AI.PROVIDERS[val].defaultModel; });
-      renderSettings();
-    });
-    $("#s-key-save").addEventListener("click", () => {
-      const val = $("#s-provider").value;
-      Store.update("sys", (s) => { s.ai = s.ai || {}; s.ai.provider = val; s.ai.apiKey = $("#s-key").value.trim(); s.ai.model = $("#s-model").value.trim() || AI.PROVIDERS[val].defaultModel; });
-      $("#s-key-status").innerHTML = `<div class="banner info"><span class="ico">✅</span><div>Guardado.</div></div>`;
-    });
-    $("#s-key-test").addEventListener("click", async () => {
-      const key = $("#s-key").value.trim(); const model = $("#s-model").value.trim(); const provider = $("#s-provider").value;
-      if (!key) { $("#s-key-status").innerHTML = `<div class="banner"><span class="ico">⚠️</span><div>Cola a chave primeiro.</div></div>`; return; }
-      $("#s-key-status").innerHTML = `<div class="gen-box" style="padding:12px"><span class="spin"></span></div>`;
-      try {
-        const workingModel = await AI.test(key, model, provider);
-        Store.update("sys", (s) => { s.ai = s.ai || {}; s.ai.provider = provider; s.ai.apiKey = key; s.ai.model = workingModel; });
-        const note = workingModel !== model ? ` (a app usou automaticamente <b>${esc(workingModel)}</b>, que é o que está disponível)` : "";
-        $("#s-key-status").innerHTML = `<div class="banner info"><span class="ico">✅</span><div>Chave válida e guardada!${note}</div></div>`;
-        $("#s-model").value = workingModel;
-      }
-      catch (err) { $("#s-key-status").innerHTML = `<div class="banner"><span class="ico">⚠️</span><div>${esc(err.message)}</div></div>`; }
-    });
 
     // — Sync —
     $("#y-save").addEventListener("click", () => {
@@ -1143,6 +1061,7 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
       case "open-all": libFilter.collection = ""; libFilter.type = ""; libFilter.fav = false; libFilter.q = ""; go({ name: "library" }); break;
       case "open-none": libFilter.collection = ""; go({ name: "library" }); filterNone(); break;
       case "to-folders": go({ name: "folders" }); break;
+      case "to-planos": go({ name: "planos" }); break;
       case "to-collection": go({ name: "collection", id }); break;
       case "new-collection": newCollectionSheet(); break;
       case "edit-collection": editCollectionSheet(id); break;
@@ -1173,7 +1092,6 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
         break;
       case "fav": { const e = entryById(id); saveEntry(id, { favorite: !e.favorite }); renderDetail(id); break; }
       case "edit": openEdit(id); break;
-      case "regen": regen(id); break;
       case "copy": { const e = entryById(id); copy(entryToText(e)); UI.toast("Copiado para a área de transferência"); break; }
       case "del":
         UI.openSheet(`<h2>Apagar resumo?</h2><p class="muted">Esta ação não é reversível.</p>
@@ -1187,7 +1105,6 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
         saveEntry(id, { actionsDone: done }); renderDetail(id); break;
       }
       case "close-sheet": UI.closeSheet(); break;
-      case "go-settings": ev.preventDefault(); UI.closeSheet(); go({ name: "settings" }); break;
     }
   });
 
