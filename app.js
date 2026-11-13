@@ -137,6 +137,18 @@
     return new Date(ts).toLocaleDateString("pt-PT", { day: "numeric", month: "short", year: "numeric" });
   }
 
+  /* ---------- ícones (traço, herdam a cor do texto) ---------- */
+  const ICONS = {
+    star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/>',
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+    copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
+    trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>',
+    back: '<path d="m15 18-6-6 6-6"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  };
+  const ico = (n) => `<svg class="i" viewBox="0 0 24 24">${ICONS[n]}</svg>`;
+  const nItens = (n) => `${n} ${n === 1 ? "item" : "itens"}`;
+
   /* ---------- UI helpers ---------- */
   const UI = {
     toast(msg) {
@@ -210,10 +222,10 @@
     $("#fab").style.display = (name === "library" || name === "folders") ? "flex" : "none";
   }
   const titles = {
-    library: ["Biblioteca", "o teu conhecimento, organizado"],
-    folders: ["Pastas", "coleções por tema"],
-    planos: ["Planos", "planos consolidados por pasta"],
-    settings: ["Definições", "sincronização e cópia"],
+    library: ["Biblioteca", ""],
+    folders: ["Pastas", ""],
+    planos: ["Planos", ""],
+    settings: ["Definições", ""],
   };
   function setHeader(name, sub) {
     const t = titles[name];
@@ -224,9 +236,9 @@
   /* ---------- render principal ---------- */
   function render() {
     const n = route.name;
-    if (n === "detail") { setTab("library"); renderDetail(route.id); return; }
+    if (n === "detail") { setTab("library"); $("#fab").style.display = "none"; renderDetail(route.id); return; }
     if (n === "collection") { setTab("folders"); renderCollection(route.id); return; }
-    if (n === "plan") { setTab("folders"); renderPlan(route.id); return; }
+    if (n === "plan") { setTab("folders"); $("#fab").style.display = "none"; renderPlan(route.id); return; }
     setTab(n);
     if (n === "library") renderLibrary();
     else if (n === "folders") renderFolders();
@@ -252,12 +264,12 @@
   function renderLibrary() {
     const total = entries().length;
     const activeColl = libFilter.collection ? collById(libFilter.collection) : null;
-    setHeader("library", activeColl ? `pasta: ${activeColl.name}` : titles.library[1]);
+    setHeader("library", total ? nItens(total) : "");
 
     const list = filteredEntries();
     const typeChips = ["", "podcast", "tiktok", "youtube", "artigo", "outro"].map((t) => {
       const on = libFilter.type === t;
-      const label = t === "" ? "Tudo" : `${typeMeta(t).e} ${typeMeta(t).label}`;
+      const label = t === "" ? "Tudo" : typeMeta(t).label;
       return `<button class="pill ${on ? "on" : ""}" data-action="filter-type" data-type="${t}">${label}</button>`;
     }).join("");
 
@@ -267,14 +279,14 @@
         <input id="searchInput" type="search" placeholder="Pesquisar na biblioteca…" value="${esc(libFilter.q)}" />
       </div>
       <div class="chiprow" style="margin-top:12px">
-        <button class="pill ${libFilter.fav ? "on" : ""}" data-action="filter-fav">⭐ Favoritos</button>
         ${typeChips}
+        <button class="pill ${libFilter.fav ? "on" : ""}" data-action="filter-fav">Favoritos</button>
       </div>`;
 
     if (activeColl) {
       html += `<div class="row between" style="margin-top:14px">
         <div class="pill on">${activeColl.emoji} ${esc(activeColl.name)}</div>
-        <button class="btn btn-sm btn-ghost" data-action="clear-collection">✕ limpar</button>
+        <button class="btn btn-sm btn-ghost" data-action="clear-collection">Limpar</button>
       </div>`;
     }
 
@@ -314,13 +326,13 @@
     const coll = (opts && opts.hideCollection) ? null : (e.collectionId ? collById(e.collectionId) : null);
     return `<article class="entry-card" data-action="open" data-id="${e.id}">
       <div class="ec-top">
-        <span class="type-badge ${e.type}">${tm.e} ${tm.label}</span>
+        <span class="type-badge">${tm.label}</span><span class="ec-sep">·</span>
         <span class="ec-date">${relDate(e.createdAt)}</span>
-        ${e.favorite ? `<span class="fav">★</span>` : ""}
+        ${e.favorite ? `<span class="fav" aria-label="Favorito">★</span>` : ""}
       </div>
       <h3 class="title">${esc(e.title)}</h3>
       ${s.tldr ? `<p class="tldr">${esc(s.tldr)}</p>` : ""}
-      ${coll ? `<div class="meta"><span class="pill">${coll.emoji} ${esc(coll.name)}</span></div>` : ""}
+      ${coll ? `<div class="meta"><span class="pill static">${coll.emoji} ${esc(coll.name)}</span></div>` : ""}
     </article>`;
   }
 
@@ -336,20 +348,19 @@
       <div class="folder" data-action="open-all">
         <div class="fico">🗂️</div>
         <div class="fname">Tudo</div>
-        <div class="fcount">${entries().length} itens</div>
+        <div class="fcount">${nItens(entries().length)}</div>
       </div>`;
     html += colls.map((c) => `
       <div class="folder" data-action="open-collection" data-id="${c.id}">
-        ${c.plan ? `<span class="plan-flag">PLANO</span>` : ""}
-        <button class="folder-edit" data-action="edit-collection" data-id="${c.id}" title="Editar pasta" aria-label="Editar pasta">✎</button>
+        <button class="folder-edit" data-action="edit-collection" data-id="${c.id}" title="Editar pasta" aria-label="Editar pasta">${ico("edit")}</button>
         <div class="fico">${c.emoji}</div>
         <div class="fname">${esc(c.name)}</div>
-        <div class="fcount">${counts[c.id] || 0} itens</div>
+        <div class="fcount">${nItens(counts[c.id] || 0)}${c.plan ? `<span class="plan-flag">Plano</span>` : ""}</div>
       </div>`).join("");
     if (uncat) html += `<div class="folder" data-action="open-none">
-        <div class="fico">📌</div><div class="fname">Sem pasta</div><div class="fcount">${uncat} itens</div></div>`;
+        <div class="fico">📌</div><div class="fname">Sem pasta</div><div class="fcount">${nItens(uncat)}</div></div>`;
     html += `<div class="folder dashed" data-action="new-collection">
-        <div class="fico">＋</div><div class="fname">Nova pasta</div></div>`;
+        <div class="fico"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></div><div class="fname">Nova pasta</div></div>`;
     html += `</div>
       <p class="kv-fieldnote" style="margin-top:14px">Abre uma pasta para gerar um <b>plano único</b> a partir de todos os conteúdos lá dentro (ex.: juntar todos os alongamentos num só plano).</p>`;
     view.innerHTML = html;
@@ -368,15 +379,15 @@
         const list = entriesInCollection(c.id);
         return `<div class="card pad-sm stack" style="gap:8px">
           <div class="row between" style="align-items:center">
-            <div class="row" style="gap:8px;align-items:center"><span style="font-size:1.2rem">${c.emoji}</span><b>${esc(c.name)}</b>${c.plan ? `<span class="plan-flag">PLANO</span>` : ""}</div>
+            <div class="row" style="gap:8px;align-items:center"><span style="font-size:1.2rem">${c.emoji}</span><b>${esc(c.name)}</b>${c.plan ? `<span class="plan-flag">Plano</span>` : ""}</div>
             <span class="tiny muted">${list.length} ${list.length === 1 ? "conteúdo" : "conteúdos"}</span>
           </div>
           <div class="row wrap" style="gap:8px">
-            <button class="btn btn-ghost btn-sm" data-action="export-collection" data-id="${c.id}" ${list.length ? "" : "disabled"}>⬇ Exportar pasta</button>
+            <button class="btn btn-sm" data-action="export-collection" data-id="${c.id}" ${list.length ? "" : "disabled"}>Exportar pasta</button>
             ${c.plan
               ? `<button class="btn btn-sm" data-action="view-plan" data-id="${c.id}">Ver plano</button>
-                 <button class="btn btn-ghost btn-sm" data-action="open-import-plan" data-id="${c.id}">📋 Substituir</button>`
-              : `<button class="btn btn-primary btn-sm" data-action="open-import-plan" data-id="${c.id}">📋 Importar plano</button>`}
+                 <button class="btn btn-ghost btn-sm" data-action="open-import-plan" data-id="${c.id}">Substituir</button>`
+              : `<button class="btn btn-primary btn-sm" data-action="open-import-plan" data-id="${c.id}">Importar plano</button>`}
           </div>
         </div>`;
       }).join("") + `</div>`;
@@ -390,14 +401,14 @@
     if (!c) { go({ name: "folders" }); return; }
     const list = entriesInCollection(id);
     setHeader("folders", "");
-    $("#topTitle").textContent = "Pasta";
-    $("#topSub").textContent = c.name;
+    $("#topTitle").textContent = "Pastas";
+    $("#topSub").textContent = "";
 
-    let html = `<div class="row between" style="margin:6px 0 2px">
-        <button class="btn btn-ghost btn-sm" data-action="to-folders" style="padding-left:0">‹ Pastas</button>
-        <div class="row" style="gap:4px">
-          <button class="btn btn-ghost btn-sm" data-action="edit-collection" data-id="${id}">✎ Editar</button>
-          <button class="btn btn-ghost btn-sm" data-action="del-collection" data-id="${id}">✕ Apagar</button>
+    let html = `<div class="backbar">
+        <button class="btn btn-ghost btn-sm" data-action="to-folders">${ico("back")} Pastas</button>
+        <div class="row" style="gap:2px">
+          <button class="btn btn-ghost btn-icon" data-action="edit-collection" data-id="${id}" title="Editar pasta" aria-label="Editar pasta">${ico("edit")}</button>
+          <button class="btn btn-ghost btn-icon" data-action="del-collection" data-id="${id}" title="Apagar pasta" aria-label="Apagar pasta" style="color:var(--bad)">${ico("trash")}</button>
         </div>
       </div>
       <div class="coll-head"><span class="em">${c.emoji}</span>
@@ -425,8 +436,8 @@
     }
 
     // Lista de conteúdos
-    html += `<div class="row between"><div class="section-title" style="margin-bottom:0">Conteúdos</div>
-      <button class="btn btn-ghost btn-sm" data-action="bulk-add" data-id="${id}">📋 Vários</button></div>`;
+    html += `<div class="row between" style="margin:22px 0 8px"><div class="section-title" style="margin:0">Conteúdos</div>
+      <button class="btn btn-ghost btn-sm" data-action="bulk-add" data-id="${id}">Adicionar vários</button></div>`;
     if (!list.length) {
       html += `<div class="empty" style="padding:28px 12px"><span class="ico">📄</span><div class="big-t">Pasta vazia</div><div>Adiciona conteúdos com o botão + (ou "Vários" acima para colar vários vídeos de uma vez).</div></div>`;
     } else {
@@ -444,15 +455,15 @@
     $("#topTitle").textContent = "Plano";
     $("#topSub").textContent = c.name;
 
-    let html = `<button class="btn btn-ghost btn-sm" data-action="to-collection" data-id="${id}" style="margin:6px 0 2px;padding-left:0">‹ ${esc(c.emoji + " " + c.name)}</button>
+    let html = `<div class="backbar"><button class="btn btn-ghost btn-sm" data-action="to-collection" data-id="${id}">${ico("back")} ${esc(c.name)}</button></div>
       <div class="plan-hero">
         <div class="pk"><span class="dot"></span> Plano · ${c.emoji} ${esc(c.name)}</div>
         <div class="plan-title">${esc(p.title)}</div>
       </div>
       <div class="row wrap" style="margin-top:14px;gap:8px">
-        <button class="btn btn-sm" data-action="open-import-plan" data-id="${id}">📋 Substituir</button>
-        <button class="btn btn-sm" data-action="copy-plan" data-id="${id}">⧉ Copiar</button>
-        <button class="btn btn-sm btn-danger" data-action="del-plan" data-id="${id}">🗑 Apagar plano</button>
+        <button class="btn btn-sm" data-action="copy-plan" data-id="${id}">${ico("copy")} Copiar</button>
+        <button class="btn btn-sm" data-action="open-import-plan" data-id="${id}">Substituir</button>
+        <button class="btn btn-sm btn-danger" data-action="del-plan" data-id="${id}">Apagar plano</button>
       </div>`;
 
     if (p.overview) html += `<div class="summary-section"><div class="h">Visão geral</div><div class="tldr-block">${esc(p.overview)}</div></div>`;
@@ -601,31 +612,31 @@ Visão geral em 1-3 frases.
     const coll = e.collectionId ? collById(e.collectionId) : null;
     setHeader("library", "");
     $("#topTitle").textContent = "Resumo";
-    $("#topSub").textContent = tm.label;
+    $("#topSub").textContent = "";
 
     const done = e.actionsDone || {};
     const sec = (title, body) => body ? `<div class="summary-section"><div class="h">${title}</div>${body}</div>` : "";
 
     let html = `
-      <button class="btn btn-ghost btn-sm" data-action="back" style="margin:6px 0 4px;padding-left:0">‹ Voltar</button>
+      <div class="backbar"><button class="btn btn-ghost btn-sm" data-action="back">${ico("back")} Voltar</button></div>
       <div class="detail-hero">
         <div class="kicker">
-          <span class="type-badge ${e.type}">${tm.e} ${tm.label}</span>
-          ${coll ? `<span class="pill" style="padding:2px 10px">${coll.emoji} ${esc(coll.name)}</span>` : ""}
-          <span class="tiny muted">${relDate(e.createdAt)}</span>
+          <span>${tm.label}</span>
+          ${coll ? `<span>·</span><span>${coll.emoji} ${esc(coll.name)}</span>` : ""}
+          <span>·</span><span>${relDate(e.createdAt)}</span>
         </div>
         <div class="detail-title">${esc(e.title)}</div>
-        ${e.url ? `<div class="detail-src"><a class="link" href="${esc(e.url)}" target="_blank" rel="noopener">🔗 Abrir fonte original</a></div>` : ""}
+        ${e.url ? `<div class="detail-src"><a class="link" href="${esc(e.url)}" target="_blank" rel="noopener">Abrir fonte original</a></div>` : ""}
       </div>
 
-      <div class="row wrap" style="margin-top:16px;gap:8px">
-        <button class="btn btn-sm ${e.favorite ? "btn-soft" : ""}" data-action="fav" data-id="${e.id}">${e.favorite ? "★ Favorito" : "☆ Favorito"}</button>
-        <button class="btn btn-sm" data-action="edit" data-id="${e.id}">✎ Editar</button>
-        <button class="btn btn-sm" data-action="copy" data-id="${e.id}">⧉ Copiar</button>
-        <button class="btn btn-sm btn-danger" data-action="del" data-id="${e.id}">🗑 Apagar</button>
+      <div class="detail-actions">
+        <button class="${e.favorite ? "on" : ""}" data-action="fav" data-id="${e.id}" aria-pressed="${e.favorite ? "true" : "false"}">${ico("star")}Favorito</button>
+        <button data-action="edit" data-id="${e.id}">${ico("edit")}Editar</button>
+        <button data-action="copy" data-id="${e.id}">${ico("copy")}Copiar</button>
+        <button class="danger" data-action="del" data-id="${e.id}">${ico("trash")}Apagar</button>
       </div>`;
 
-    html += sec("TL;DR", s.tldr ? `<div class="tldr-block">${esc(s.tldr)}</div>` : "");
+    html += sec("Em resumo", s.tldr ? `<div class="tldr-block">${esc(s.tldr)}</div>` : "");
     html += sec("Pontos-chave", (s.takeaways && s.takeaways.length)
       ? `<ul class="takeaways">${s.takeaways.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "");
     html += sec("Notas detalhadas", (s.sections && s.sections.length)
@@ -664,7 +675,7 @@ Visão geral em 1-3 frases.
           <h2>Adicionar conteúdo</h2>
           <p class="muted tiny" style="margin:2px 0 0">Cola o link e a transcrição/legenda, ou escreve as tuas notas.</p>
         </div>
-        <button class="btn btn-ghost btn-sm" data-action="bulk-add" data-id="${esc(prefillCollection || "")}" title="Adicionar vários vídeos de uma vez">📋 Vários</button>
+        <button class="btn btn-ghost btn-sm" data-action="bulk-add" data-id="${esc(prefillCollection || "")}" title="Adicionar vários vídeos de uma vez">Vários</button>
       </div>
       <div class="form-grid" id="addForm">
         <label class="field"><span>Tipo</span>${typeSelector("outro")}</label>
@@ -905,20 +916,6 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
     const stats = { itens: entries().length, pastas: collections().length };
 
     view.innerHTML = `
-      <div class="section-title">Importar do TikTok</div>
-      <div class="card stack">
-        <div class="banner info"><span class="ico">🎵</span><div>Ao adicionar um link do TikTok ou YouTube, a legenda/título já vêm automaticamente (via oEmbed público). Para recolheres <b>uma pasta inteira</b> de Favoritos de uma vez, usa este atalho de um clique.</div></div>
-        <ol class="tiny muted" style="padding-left:18px;line-height:1.7;margin:0">
-          <li>Arrasta o botão abaixo para os favoritos do teu browser (ou copia o código e cria um favorito à mão).</li>
-          <li>No telemóvel/PC, abre <code>tiktok.com/@teu_user/favorites</code> com sessão iniciada.</li>
-          <li>Clica nesse favorito — recolhe os vídeos visíveis e a legenda de cada um, e tenta copiar tudo automaticamente (em muitos browsers já não precisas de clicar em "Copiar").</li>
-          <li>Volta aqui, abre a pasta certa em "📋 Vários" e usa o botão "Colar da área de transferência" — evita ter de fazer "colar" à mão.</li>
-        </ol>
-        <a id="tkBookmarklet" class="btn btn-primary btn-block" href="#" onclick="return false" draggable="true">📲 Recolher pasta do TikTok</a>
-        <button class="btn btn-ghost btn-block" id="tkCopyCode">⧉ Copiar código do atalho</button>
-        <div class="kv-fieldnote">Corre na tua própria sessão do TikTok, disparado por ti — não guarda nem envia a tua password a lado nenhum. Como o TikTok não tem uma API pública para pastas privadas, isto lê o que já está visível na página; se a estrutura do TikTok mudar, pode precisar de ajuste.</div>
-      </div>
-
       <div class="section-title">Sincronização telemóvel ↔ PC</div>
       <div class="card stack">
         <div class="banner info"><span class="ico">☁️</span><div>Opcional e grátis. Cria um projeto em <b>supabase.com</b> (sem cartão), corre o SQL abaixo, e usa o <b>mesmo código</b> nos teus dispositivos.</div></div>
@@ -941,6 +938,20 @@ Legenda ou transcrição do 2º vídeo…"></textarea>
             <option value="light" ${theme === "light" ? "selected" : ""}>Claro</option>
             <option value="dark" ${theme === "dark" ? "selected" : ""}>Escuro</option>
           </select></label>
+      </div>
+
+      <div class="section-title">Importar do TikTok</div>
+      <div class="card stack">
+        <div class="banner info"><span class="ico">🎵</span><div>Ao adicionar um link do TikTok ou YouTube, a legenda/título já vêm automaticamente (via oEmbed público). Para recolheres <b>uma pasta inteira</b> de Favoritos de uma vez, usa este atalho de um clique.</div></div>
+        <ol class="tiny muted" style="padding-left:18px;line-height:1.7;margin:0">
+          <li>Arrasta o botão abaixo para os favoritos do teu browser (ou copia o código e cria um favorito à mão).</li>
+          <li>No telemóvel/PC, abre <code>tiktok.com/@teu_user/favorites</code> com sessão iniciada.</li>
+          <li>Clica nesse favorito — recolhe os vídeos visíveis e a legenda de cada um, e tenta copiar tudo automaticamente (em muitos browsers já não precisas de clicar em "Copiar").</li>
+          <li>Volta aqui, abre a pasta certa em "Adicionar vários" e usa o botão "Colar da área de transferência" — evita ter de fazer "colar" à mão.</li>
+        </ol>
+        <a id="tkBookmarklet" class="btn btn-primary btn-block" href="#" onclick="return false" draggable="true">📲 Recolher pasta do TikTok</a>
+        <button class="btn btn-ghost btn-block" id="tkCopyCode">⧉ Copiar código do atalho</button>
+        <div class="kv-fieldnote">Corre na tua própria sessão do TikTok, disparado por ti — não guarda nem envia a tua password a lado nenhum. Como o TikTok não tem uma API pública para pastas privadas, isto lê o que já está visível na página; se a estrutura do TikTok mudar, pode precisar de ajuste.</div>
       </div>
 
       <div class="section-title">Dados</div>

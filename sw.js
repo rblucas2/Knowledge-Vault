@@ -1,5 +1,5 @@
 /* Service worker — app shell offline para o Knowledge Vault */
-const VERSION = "kvault-v8";
+const VERSION = "kvault-v9";
 const CORE = [
   "./", "./index.html",
   "./base.css", "./app.css",

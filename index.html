@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Knowledge Vault</title>
   <meta name="description" content="A tua biblioteca de conhecimento: resumos de podcasts e vídeos do TikTok, num só sítio." />
-  <meta name="theme-color" content="#bd5227" />
+  <meta name="theme-color" content="#f5f5f2" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0c0e11" media="(prefers-color-scheme: dark)" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,500;1,9..144,600&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./base.css" />
   <link rel="stylesheet" href="./app.css" />
   <link rel="manifest" href="./manifest.webmanifest" />
@@ -21,10 +22,9 @@
 <body>
   <div class="app">
     <header class="topbar">
-      <div class="brand-mark">KV</div>
       <div>
         <h1 id="topTitle">Biblioteca</h1>
-        <div class="sub" id="topSub">o teu conhecimento, organizado</div>
+        <div class="sub" id="topSub"></div>
       </div>
       <div class="spacer"></div>
       <button class="btn btn-icon btn-ghost" id="syncBtn" title="Estado da sincronização" aria-label="Sincronização">
@@ -35,7 +35,7 @@
     <main id="view"><!-- render aqui --></main>
   </div>
 
-  <button class="fab" id="fab" aria-label="Adicionar conteúdo">+</button>
+  <button class="fab" id="fab" aria-label="Adicionar conteúdo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
 
   <nav class="tabbar" id="tabbar">
     <a data-tab="library" class="active">
